@@ -1,22 +1,9 @@
-/**
- * @fileoverview หน้าล็อคอินสำหรับแอปพลิเคชัน Flutter
- * 
- * รายละเอียดทั่วไป:
- * - หน้าล็อคอินที่มี UI สวยงามตามแบบที่กำหนด
- * - รองรับการกรอกอีเมลและรหัสผ่าน
- * - มีปุ่มแสดง/ซ่อนรหัสผ่าน
- * - มีลิงก์สำหรับลืมรหัสผ่าน
- * - เชื่อมต่อไปหน้าสมัครสมาชิก
- * - ใช้โลโก้จากไฟล์ lib/img/logo.png
- * 
- * การอัปเดต:
- * - 06/06/2025: เริ่มพัฒนาหน้าล็อคอิน
- * - 06/06/2025: เพิ่มการเชื่อมต่อไปหน้าสมัครสมาชิก
- */
-
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http; // เพิ่ม package http
+import 'dart:convert'; // เพิ่ม dart:convert สำหรับ JSON encoding/decoding
+
 import 'register.dart';
-import 'main_layout.dart';
+import 'main_layout.dart'; // ตรวจสอบให้แน่ใจว่าคุณมีไฟล์ main_layout.dart
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -49,25 +36,57 @@ class _LoginPageState extends State<LoginPage> {
       _is_loading = true;
     });
 
+    // กำหนด URL ของ API
+    // **สำคัญ: เปลี่ยน YOUR_SERVER_IP_OR_DOMAIN เป็น IP หรือโดเมนของเซิร์ฟเวอร์ PHP ของคุณ**
+    // เช่น 'http://192.168.1.100/project/login.php' หรือ 'https://yourdomain.com/project/login.php'
+    const String apiUrl = 'http://10.10.54.175//project/login.php';
+
     try {
-      // TODO: เพิ่มการเรียก API สำหรับล็อคอิน
-      await Future.delayed(const Duration(seconds: 2)); // จำลองการเรียก API
-      
-      // หากล็อคอินสำเร็จ นำทางไปหน้าหลัก
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(<String, String>{
+          'email': _email_controller.text,
+          'password': _password_controller.text,
+        }),
+      );
+
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const MainLayout(),
-          ),
-        );
+        if (response.statusCode == 200) {
+          // ล็อคอินสำเร็จ
+          final responseData = jsonDecode(response.body);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(responseData['message'] ?? 'เข้าสู่ระบบสำเร็จ'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          // นำทางไปหน้าหลัก (MainLayout)
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MainLayout(),
+            ),
+          );
+        } else {
+          // ล็อคอินไม่สำเร็จ (มีข้อผิดพลาดจาก PHP)
+          final errorData = jsonDecode(response.body);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorData['message'] ?? 'เข้าสู่ระบบไม่สำเร็จ'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
-    } catch (error) {
-      // จัดการข้อผิดพลาด
+    } catch (e) {
+      // จัดการข้อผิดพลาดระดับเครือข่าย หรือ JSON parsing
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เข้าสู่ระบบไม่สำเร็จ: $error'),
+            content: Text('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -104,7 +123,7 @@ class _LoginPageState extends State<LoginPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Spacer(flex: 2),
-                
+
                 // โลโก้
                 Container(
                   width: 80,
@@ -116,7 +135,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.asset(
-                      'lib/img/logo.png',
+                      'lib/img/logo.png', // ตรวจสอบว่ามีรูป logo.png ใน lib/img/
                       fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) {
                         // ถ้าโหลดรูปไม่ได้ จะแสดงไอคอนแทน
@@ -129,9 +148,9 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 48),
-                
+
                 // ช่องกรอกอีเมล
                 TextFormField(
                   controller: _email_controller,
@@ -168,9 +187,9 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
-                
+
                 const SizedBox(height: 16),
-                
+
                 // ช่องกรอกรหัสผ่าน
                 TextFormField(
                   controller: _password_controller,
@@ -217,9 +236,9 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
-                
+
                 const SizedBox(height: 24),
-                
+
                 // ปุ่มเข้าสู่ระบบ
                 SizedBox(
                   width: double.infinity,
@@ -252,12 +271,21 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 16),
-                
+
                 // ลิงก์ลืมรหัสผ่าน
                 TextButton(
-                  onPressed: _navigate_to_register,
+                  onPressed: () {
+                    // TODO: Implement forgot password navigation or dialog
+                    // คุณอาจจะนำทางไปยังหน้า "ลืมรหัสผ่าน" แยกต่างหาก
+                    // หรือแสดง dialog ให้กรอกอีเมลเพื่อรีเซ็ตรหัสผ่าน
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('ฟังก์ชันลืมรหัสผ่านยังไม่พร้อมใช้งาน'),
+                      ),
+                    );
+                  },
                   child: const Text(
                     'ลืมรหัสผ่าน?',
                     style: TextStyle(
@@ -267,9 +295,9 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 // ข้อความและลิงก์สมัครสมาชิก
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -294,7 +322,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ],
                 ),
-                
+
                 const Spacer(flex: 3),
               ],
             ),
