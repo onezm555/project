@@ -1,15 +1,3 @@
-/**
- * @fileoverview Layout หลักของแอปพลิเคชัน ที่จัดการ Bottom Navigation
- * 
- * รายละเอียดทั่วไป:
- * - จัดการ Bottom Navigation Bar และการเปลี่ยนหน้า
- * - แสดงแถบค้นหาและปุ่ม QR Scanner
- * - เป็นตัวกลางในการจัดการหน้าต่างๆ
- * - สามารถนำไปใช้ซ้ำได้หลายที่
- * 
- * การอัปเดต:
- * - 06/06/2025: สร้าง Layout หลักแยกออกมา
- */
 
 import 'package:flutter/material.dart';
 import 'index.dart';

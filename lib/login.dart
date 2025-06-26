@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http; // เพิ่ม package http
-import 'dart:convert'; // เพิ่ม dart:convert สำหรับ JSON encoding/decoding
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart'; // เพิ่ม import นี้
 
 import 'register.dart';
-import 'main_layout.dart'; // ตรวจสอบให้แน่ใจว่าคุณมีไฟล์ main_layout.dart
+import 'main_layout.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -26,7 +27,6 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // ฟังก์ชันสำหรับจัดการการล็อคอิน
   Future<void> _handle_login() async {
     if (!_form_key.currentState!.validate()) {
       return;
@@ -36,10 +36,10 @@ class _LoginPageState extends State<LoginPage> {
       _is_loading = true;
     });
 
-    // กำหนด URL ของ API
-    // **สำคัญ: เปลี่ยน YOUR_SERVER_IP_OR_DOMAIN เป็น IP หรือโดเมนของเซิร์ฟเวอร์ PHP ของคุณ**
-    // เช่น 'http://192.168.1.100/project/login.php' หรือ 'https://yourdomain.com/project/login.php'
-    const String apiUrl = 'http://10.10.54.175//project/login.php';
+    const String apiUrl = 'http://10.10.33.118/project/login.php'; // ตรวจสอบ URL นี้
+    // สำหรับการทดสอบบน Emulator หรืออุปกรณ์จริง ให้เปลี่ยน localhost เป็น IP ของเครื่องคุณ
+    // เช่น 'http://192.168.1.xxx/project/login.php'
+    // หรือสำหรับ Android Emulator ที่รัน PHP บนเครื่องเดียวกัน ให้ใช้ 'http://10.0.2.2/project/login.php'
 
     try {
       final response = await http.post(
@@ -55,23 +55,37 @@ class _LoginPageState extends State<LoginPage> {
 
       if (mounted) {
         if (response.statusCode == 200) {
-          // ล็อคอินสำเร็จ
           final responseData = jsonDecode(response.body);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(responseData['message'] ?? 'เข้าสู่ระบบสำเร็จ'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          // นำทางไปหน้าหลัก (MainLayout)
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const MainLayout(),
-            ),
-          );
+          
+          // ตรวจสอบว่ามี user_id ใน response data หรือไม่
+          if (responseData['status'] == 'success' && responseData['user_id'] != null) { // ตรวจสอบ status และ user_id
+            final int userId = responseData['user_id']; //
+            
+            // บันทึก user_id ลง SharedPreferences
+            SharedPreferences prefs = await SharedPreferences.getInstance();
+            await prefs.setInt('user_id', userId);
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(responseData['message'] ?? 'เข้าสู่ระบบสำเร็จ'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const MainLayout(),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(responseData['message'] ?? 'เข้าสู่ระบบไม่สำเร็จ: ไม่พบ User ID'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         } else {
-          // ล็อคอินไม่สำเร็จ (มีข้อผิดพลาดจาก PHP)
           final errorData = jsonDecode(response.body);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -82,7 +96,6 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
     } catch (e) {
-      // จัดการข้อผิดพลาดระดับเครือข่าย หรือ JSON parsing
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -100,7 +113,6 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // ฟังก์ชันสำหรับไปหน้าสมัครสมาชิก
   void _navigate_to_register() {
     Navigator.push(
       context,
@@ -123,8 +135,6 @@ class _LoginPageState extends State<LoginPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Spacer(flex: 2),
-
-                // โลโก้
                 Container(
                   width: 80,
                   height: 80,
@@ -135,10 +145,9 @@ class _LoginPageState extends State<LoginPage> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.asset(
-                      'lib/img/logo.png', // ตรวจสอบว่ามีรูป logo.png ใน lib/img/
+                      'lib/img/logo.png',
                       fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) {
-                        // ถ้าโหลดรูปไม่ได้ จะแสดงไอคอนแทน
                         return Icon(
                           Icons.business,
                           size: 40,
@@ -148,10 +157,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 48),
-
-                // ช่องกรอกอีเมล
                 TextFormField(
                   controller: _email_controller,
                   keyboardType: TextInputType.emailAddress,
@@ -187,10 +193,7 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
-
                 const SizedBox(height: 16),
-
-                // ช่องกรอกรหัสผ่าน
                 TextFormField(
                   controller: _password_controller,
                   obscureText: !_is_password_visible,
@@ -236,10 +239,7 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
-
                 const SizedBox(height: 24),
-
-                // ปุ่มเข้าสู่ระบบ
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -271,15 +271,9 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // ลิงก์ลืมรหัสผ่าน
                 TextButton(
                   onPressed: () {
-                    // TODO: Implement forgot password navigation or dialog
-                    // คุณอาจจะนำทางไปยังหน้า "ลืมรหัสผ่าน" แยกต่างหาก
-                    // หรือแสดง dialog ให้กรอกอีเมลเพื่อรีเซ็ตรหัสผ่าน
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('ฟังก์ชันลืมรหัสผ่านยังไม่พร้อมใช้งาน'),
@@ -295,10 +289,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 20),
-
-                // ข้อความและลิงก์สมัครสมาชิก
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -322,7 +313,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ],
                 ),
-
                 const Spacer(flex: 3),
               ],
             ),

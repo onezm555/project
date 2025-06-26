@@ -56,7 +56,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://10.10.54.175/project/register.php'), // Endpoint API ของคุณ
+        Uri.parse('http://10.10.33.118/project/register.php'), // Endpoint API ของคุณ
         headers: <String, String>{
           'Content-Type': 'application/json; charset=UTF-8',
         },
