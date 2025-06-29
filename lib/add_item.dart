@@ -6,7 +6,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // URL พื้นฐานของ API ของคุณ
-const String _api_base_url = 'http://10.10.33.118/project';
+const String _api_base_url = 'http://10.10.44.149/project';
 
 class AddItemPage extends StatefulWidget {
   final bool is_existing_item;

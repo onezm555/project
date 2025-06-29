@@ -55,7 +55,7 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
     // กำหนด URL ของ API
     // **สำคัญ: เปลี่ยน YOUR_SERVER_IP_OR_DOMAIN เป็น IP หรือโดเมนของเซิร์ฟเวอร์ PHP ของคุณ**
     // ใช้ IP เดียวกันกับที่ใช้ใน login.dart
-    const String apiUrl = 'http://10.10.33.118/project/verify_code.php'; // ตัวอย่าง: ใช้ IP เดียวกับที่คุณเจอใน error
+    const String apiUrl = 'http://10.10.44.149/project/verify_code.php'; // ตัวอย่าง: ใช้ IP เดียวกับที่คุณเจอใน error
 
     try {
       final response = await http.post(

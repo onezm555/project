@@ -44,7 +44,7 @@ class _IndexPageState extends State<IndexPage> {
       return;
     }
 
-    final String apiUrl = 'http://10.10.33.118/project/my_items.php?user_id=$userId';
+    final String apiUrl = 'http://10.10.44.149/project/my_items.php?user_id=$userId';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));

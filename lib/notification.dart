@@ -1,16 +1,3 @@
-/**
- * @fileoverview หน้าการแจ้งเตือนของแอปพลิเคชัน
- * 
- * รายละเอียดทั่วไป:
- * - หน้าแสดงการแจ้งเตือนสินค้าที่หมดอายุ
- * - แบ่งตามประเภท: วันนี้, สินค้าที่เก็บ
- * - สามารถลบการแจ้งเตือนได้
- * - ไม่มี AppBar หรือ Bottom Navigation (จัดการโดย MainLayout)
- * 
- * การอัปเดต:
- * - 06/06/2025: สร้างหน้าการแจ้งเตือนใหม่
- */
-
 import 'package:flutter/material.dart';
 
 class NotificationPage extends StatefulWidget {

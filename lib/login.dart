@@ -36,7 +36,7 @@ class _LoginPageState extends State<LoginPage> {
       _is_loading = true;
     });
 
-    const String apiUrl = 'http://10.10.33.118/project/login.php'; // ตรวจสอบ URL นี้
+    const String apiUrl = 'http://10.10.44.149/project/login.php'; // ตรวจสอบ URL นี้
     // สำหรับการทดสอบบน Emulator หรืออุปกรณ์จริง ให้เปลี่ยน localhost เป็น IP ของเครื่องคุณ
     // เช่น 'http://192.168.1.xxx/project/login.php'
     // หรือสำหรับ Android Emulator ที่รัน PHP บนเครื่องเดียวกัน ให้ใช้ 'http://10.0.2.2/project/login.php'
