@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationPage extends StatefulWidget {
   const NotificationPage({Key? key}) : super(key: key);
@@ -8,36 +11,90 @@ class NotificationPage extends StatefulWidget {
 }
 
 class _NotificationPageState extends State<NotificationPage> {
-  // ข้อมูลการแจ้งเตือน
-  List<Map<String, dynamic>> _notifications = [
-    {
-      'id': 1,
-      'type': 'today',
-      'title': 'เกลือ ปรุงกิฟฟี่ เสริมไอโอดีน',
-      'description': 'หมดอายุแล้ว',
-      'date': 'วันหมดอายุ 21 ม.ค. 2025',
-      'is_expired': true,
-      'created_at': DateTime.now().subtract(const Duration(hours: 2)),
-    },
-    {
-      'id': 2,
-      'type': 'stored',
-      'title': 'พริกไทยป่น เฮมเพพ',
-      'description': 'จะหมดอายุในอีก 30 วัน',
-      'date': 'วันหมดอายุ 21 ม.ค. 2025',
-      'is_expired': false,
-      'created_at': DateTime.now().subtract(const Duration(days: 1)),
-    },
-  ];
+  List<Map<String, dynamic>> _notifications = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch_notifications();
+  }
+
+  Future<void> _fetch_notifications() async {
+    setState(() {
+      _isLoading = true;
+    });
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    final int? userId = prefs.getInt('user_id');
+    if (userId == null) {
+      setState(() {
+        _notifications = [];
+        _isLoading = false;
+      });
+      return;
+    }
+    // TODO: Replace with your API endpoint
+    final String apiUrl = 'http://localhost/project/my_items.php?user_id=$userId';
+    try {
+      final response = await http.get(Uri.parse(apiUrl));
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['success'] == true) {
+          List<Map<String, dynamic>> notiList = [];
+          final now = DateTime.now();
+          for (var item in responseData['data']) {
+            final expireDate = DateTime.parse(item['item_date']);
+            final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
+            final notifyDate = expireDate.subtract(Duration(days: notifyDays));
+            final daysLeft = expireDate.difference(now).inDays;
+            if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
+              notiList.add({
+                'id': item['item_id'],
+                'type': daysLeft <= 0 ? 'today' : 'stored',
+                'title': item['item_name'],
+                'description': daysLeft < 0
+                    ? 'หมดอายุแล้ว'
+                    : 'จะหมดอายุในอีก ${daysLeft} วัน',
+                'date': 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}',
+                'is_expired': daysLeft < 0,
+                'created_at': now,
+              });
+            }
+          }
+          setState(() {
+            _notifications = notiList;
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _notifications = [];
+            _isLoading = false;
+          });
+        }
+      } else {
+        setState(() {
+          _notifications = [];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _notifications = [];
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_notifications.isEmpty) {
       return _build_empty_state();
     }
-
     return RefreshIndicator(
-      onRefresh: _refresh_notifications,
+      onRefresh: _fetch_notifications,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -1,10 +1,12 @@
-// calendar.dart
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // <--- (1) เพิ่ม import นี้
 import 'item_detail_page.dart'; // ตรวจสอบให้แน่ใจว่า path ถูกต้อง
+
+// URL พื้นฐานของ API ของคุณ (บรรทัดนี้ถูกลบแล้ว)
+// const String _api_base_url = 'http://10.192.168.1.176/project'; // <--- (2) บรรทัดนี้ถูกลบออกไป
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({Key? key}) : super(key: key);
@@ -26,9 +28,13 @@ class _CalendarPageState extends State<CalendarPage> {
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
   ];
 
+  String _api_base_url = ''; // <--- (3) เพิ่มตัวแปรนี้สำหรับเก็บ base URL
+
   @override
   void initState() {
     super.initState();
+    // <--- (4) ดึงค่าจาก .env เมื่อ initState
+    _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'; // กำหนดค่า default ถ้าหาไม่เจอ
     _fetch_expiry_data(); // เรียกเมื่อเริ่มต้น
   }
 
@@ -49,7 +55,7 @@ class _CalendarPageState extends State<CalendarPage> {
       return;
     }
 
-    const String _api_base_url = 'http://10.10.44.149/project'; // URL ของ API ของคุณ
+    // <--- (5) ใช้ _api_base_url ที่ดึงมาจาก .env เพื่อสร้าง apiUrl
     final String apiUrl = '$_api_base_url/my_items.php?user_id=$userId';
 
     try {
@@ -145,29 +151,47 @@ class _CalendarPageState extends State<CalendarPage> {
                     ),
                   ),
                 )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      _build_month_filter(), // ตัวกรองอยู่ด้านบนเสมอ
-                      const SizedBox(height: 16),
-                      if (!_show_only_expiry_months) _build_year_selector(), // เลือกปีถ้าไม่ได้กรอง
-                      const SizedBox(height: 16),
-                      ...List.generate(12, (index) {
-                        int month = index + 1;
-                        // แก้ไขเงื่อนไขการซ่อน/แสดงเดือน
-                        if (_show_only_expiry_months) {
-                          // โหมดกรอง: ซ่อนเดือนที่ไม่มีหมดอายุเลย
-                          if (!_has_any_expiry_in_month(month)) {
-                            return const SizedBox.shrink();
-                          }
-                        }
-                        // โหมดปกติ: แสดงครบ 12 เดือนเสมอ ไม่ว่าจะไม่มีสินค้าหมดอายุในปีนั้นหรือไม่
-                        return _build_month_calendar(month);
-                      }),
-                    ],
-                  ),
-                ),
+              : _all_expiry_items_by_date.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.inbox, color: Colors.grey, size: 64),
+                            SizedBox(height: 16),
+                            Text(
+                              'ไม่พบสิ่งของเพิ่มการเก็บวันหมดอายุของคุณ',
+                              style: TextStyle(fontSize: 18, color: Colors.grey),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          _build_month_filter(), // ตัวกรองอยู่ด้านบนเสมอ
+                          const SizedBox(height: 16),
+                          if (!_show_only_expiry_months) _build_year_selector(), // เลือกปีถ้าไม่ได้กรอง
+                          const SizedBox(height: 16),
+                          ...List.generate(12, (index) {
+                            int month = index + 1;
+                            // แก้ไขเงื่อนไขการซ่อน/แสดงเดือน
+                            if (_show_only_expiry_months) {
+                              // โหมดกรอง: ซ่อนเดือนที่ไม่มีหมดอายุเลย
+                              if (!_has_any_expiry_in_month(month)) {
+                                return const SizedBox.shrink();
+                              }
+                            }
+                            // โหมดปกติ: แสดงครบ 12 เดือนเสมอ ไม่ว่าจะไม่มีสินค้าหมดอายุในปีนั้นหรือไม่
+                            return _build_month_calendar(month);
+                          }),
+                        ],
+                      ),
+                    ),
     );
   }
 
@@ -342,7 +366,7 @@ class _CalendarPageState extends State<CalendarPage> {
               // เก็บรายการสินค้าที่หมดอายุในวันนี้ (สำหรับปีที่เลือก หรือทุกปี)
               List<Map<String, dynamic>> items_on_this_day_across_all_years = [];
               // ไม่ต้องเก็บ expiry_years_on_this_day สำหรับแสดงบนตัวเลขวันแล้ว
-              // Set<int> expiry_years_on_this_day = {}; 
+              // Set<int> expiry_years_on_this_day = {};
 
               for (var entry in _all_expiry_items_by_date.entries) {
                 DateTime stored_date = DateTime.parse(entry.key);
@@ -352,7 +376,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   }
                   items_on_this_day_across_all_years.addAll(entry.value);
                   // ไม่ต้องเพิ่มปี พ.ศ. ลงใน Set นี้แล้ว
-                  // expiry_years_on_this_day.add(stored_date.year + 543); 
+                  // expiry_years_on_this_day.add(stored_date.year + 543);
                 }
               }
 

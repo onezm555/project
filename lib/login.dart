@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart'; // เพิ่ม import นี้
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
 
 import 'register.dart';
 import 'main_layout.dart';
@@ -19,12 +20,32 @@ class _LoginPageState extends State<LoginPage> {
   final GlobalKey<FormState> _form_key = GlobalKey<FormState>();
   bool _is_password_visible = false;
   bool _is_loading = false;
+  String _api_base_url = ''; // เพิ่มตัวแปรสำหรับเก็บ base URL
+
+  @override
+  void initState() {
+    super.initState();
+    _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
+    _loadSavedLogin(); // โหลดข้อมูลล็อกอินที่บันทึกไว้
+  }
 
   @override
   void dispose() {
     _email_controller.dispose();
     _password_controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSavedLogin() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedEmail = prefs.getString('saved_email');
+    String? savedPassword = prefs.getString('saved_password');
+    if (savedEmail != null) {
+      _email_controller.text = savedEmail;
+    }
+    if (savedPassword != null) {
+      _password_controller.text = savedPassword;
+    }
   }
 
   Future<void> _handle_login() async {
@@ -36,10 +57,8 @@ class _LoginPageState extends State<LoginPage> {
       _is_loading = true;
     });
 
-    const String apiUrl = 'http://10.10.44.149/project/login.php'; // ตรวจสอบ URL นี้
-    // สำหรับการทดสอบบน Emulator หรืออุปกรณ์จริง ให้เปลี่ยน localhost เป็น IP ของเครื่องคุณ
-    // เช่น 'http://192.168.1.xxx/project/login.php'
-    // หรือสำหรับ Android Emulator ที่รัน PHP บนเครื่องเดียวกัน ให้ใช้ 'http://10.0.2.2/project/login.php'
+    // ใช้ _api_base_url ที่ดึงมาจาก .env
+    final String apiUrl = '$_api_base_url/login.php';
 
     try {
       final response = await http.post(
@@ -57,13 +76,14 @@ class _LoginPageState extends State<LoginPage> {
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
           
-          // ตรวจสอบว่ามี user_id ใน response data หรือไม่
-          if (responseData['status'] == 'success' && responseData['user_id'] != null) { // ตรวจสอบ status และ user_id
-            final int userId = responseData['user_id']; //
+          if (responseData['status'] == 'success' && responseData['user_id'] != null) {
+            final int userId = responseData['user_id'];
             
-            // บันทึก user_id ลง SharedPreferences
             SharedPreferences prefs = await SharedPreferences.getInstance();
             await prefs.setInt('user_id', userId);
+            // บันทึกอีเมลและรหัสผ่าน
+            await prefs.setString('saved_email', _email_controller.text);
+            await prefs.setString('saved_password', _password_controller.text);
 
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -119,6 +139,18 @@ class _LoginPageState extends State<LoginPage> {
       MaterialPageRoute(
         builder: (context) => const RegisterPage(),
       ),
+    );
+  }
+
+  Future<void> _logout() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove('user_id');
+    // ถ้าต้องการลบ email/password ที่บันทึกไว้ด้วย ให้ uncomment ด้านล่าง
+    // await prefs.remove('saved_email');
+    // await prefs.remove('saved_password');
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginPage()),
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'verify_code_page.dart';
 import 'package:http/http.dart' as http; // นำเข้า http package
 import 'dart:convert'; // นำเข้าสำหรับ JSON encoding/decoding
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่มบรรทัดนี้เพื่อใช้ dotenv
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({Key? key}) : super(key: key);
@@ -56,7 +57,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://10.10.44.149/project/register.php'), // Endpoint API ของคุณ
+        Uri.parse('${dotenv.env['API_BASE_URL']}/register.php'), // ใช้ URL จาก .env
         headers: <String, String>{
           'Content-Type': 'application/json; charset=UTF-8',
         },

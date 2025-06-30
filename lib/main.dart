@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'login.dart';
+import 'main_layout.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
+
+  // ตรวจสอบสถานะล็อกอิน
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  final int? userId = prefs.getInt('user_id');
+
+  runApp(MyApp(isLoggedIn: userId != null));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool isLoggedIn;
+  const MyApp({super.key, required this.isLoggedIn});
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +30,7 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const LoginPage(),
+      home: isLoggedIn ? const MainLayout() : const LoginPage(),
     );
   }
 }

@@ -18,7 +18,11 @@ class SuccessRegisterPage extends StatelessWidget {
                 child: IconButton(
                   icon: const Icon(Icons.close, size: 28),
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (context) => LoginPage()),
+                      (route) => false,
+                    );
                   },
                 ),
               ),

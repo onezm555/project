@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http; // เพิ่ม package http
 import 'dart:convert'; // เพิ่ม dart:convert สำหรับ JSON encoding/decoding
 import 'success_register_page.dart'; // ตรวจสอบว่าไฟล์นี้มีอยู่จริง
 import 'main_layout.dart'; // หรือหน้าที่คุณต้องการให้ไปหลังจากยืนยันสำเร็จ
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่มบรรทัดนี้เพื่อใช้ dotenv
 
 class VerifyCodePage extends StatefulWidget {
   final String email; // เพิ่ม email parameter เข้ามา
@@ -53,9 +54,7 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
     });
 
     // กำหนด URL ของ API
-    // **สำคัญ: เปลี่ยน YOUR_SERVER_IP_OR_DOMAIN เป็น IP หรือโดเมนของเซิร์ฟเวอร์ PHP ของคุณ**
-    // ใช้ IP เดียวกันกับที่ใช้ใน login.dart
-    const String apiUrl = 'http://10.10.44.149/project/verify_code.php'; // ตัวอย่าง: ใช้ IP เดียวกับที่คุณเจอใน error
+    final String apiUrl = '${dotenv.env['API_BASE_URL']}/verify_code.php'; // ใช้ URL จาก .env
 
     try {
       final response = await http.post(

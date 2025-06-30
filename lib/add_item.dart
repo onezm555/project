@@ -4,19 +4,20 @@ import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
 
-// URL พื้นฐานของ API ของคุณ
-const String _api_base_url = 'http://10.10.44.149/project';
+// URL พื้นฐานของ API ของคุณ - ลบบรรทัดนี้ออกไป
+// const String _api_base_url = 'http://10.192.168.1.176/project';
 
 class AddItemPage extends StatefulWidget {
   final bool is_existing_item;
   // เพิ่ม callback สำหรับการรีโหลดข้อมูลในหน้าก่อนหน้า
-  final VoidCallback? on_item_added; // **เพิ่มตัวแปรนี้**
+  final VoidCallback? on_item_added;
 
   const AddItemPage({
     Key? key,
     this.is_existing_item = false,
-    this.on_item_added, // **รับค่าใน constructor**
+    this.on_item_added,
   }) : super(key: key);
 
   @override
@@ -28,7 +29,7 @@ class _AddItemPageState extends State<AddItemPage> {
   final TextEditingController _quantity_controller = TextEditingController(text: '1');
   final TextEditingController _barcode_controller = TextEditingController();
   final TextEditingController _price_controller = TextEditingController();
-  final TextEditingController _notification_days_controller = TextEditingController(text: '3');
+  final TextEditingController _notification_days_controller = TextEditingController(text: '');
   final GlobalKey<FormState> _form_key = GlobalKey<FormState>();
 
   DateTime _selected_date = DateTime.now().add(const Duration(days: 7));
@@ -42,9 +43,6 @@ class _AddItemPageState extends State<AddItemPage> {
   final List<String> _units = [
     'วันหมดอายุ(EXP)',
     'วันที่ผลิต(MFG)',
-    'ใช้ภายใน',
-    'แช่เย็น',
-    'แช่แข็ง',
   ];
 
   List<String> _categories = ['เลือกประเภท'];
@@ -52,9 +50,13 @@ class _AddItemPageState extends State<AddItemPage> {
 
   int? _current_user_id;
 
+  String _api_base_url = ''; // เพิ่มตัวแปรนี้สำหรับเก็บ base URL
+
   @override
   void initState() {
     super.initState();
+    // ดึงค่าจาก .env เมื่อ initState
+    _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'; // กำหนดค่า default ถ้าหาไม่เจอ
     _load_user_id();
     _fetch_categories();
     _fetch_storage_locations();
@@ -83,6 +85,7 @@ class _AddItemPageState extends State<AddItemPage> {
       _is_loading = true;
     });
     try {
+      // ใช้ _api_base_url ที่ดึงมาจาก .env
       final response = await http.get(Uri.parse('$_api_base_url/get_types.php'));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
@@ -111,6 +114,7 @@ class _AddItemPageState extends State<AddItemPage> {
       _is_loading = true;
     });
     try {
+      // ใช้ _api_base_url ที่ดึงมาจาก .env
       final response = await http.get(Uri.parse('$_api_base_url/get_areas.php'));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
@@ -247,7 +251,7 @@ class _AddItemPageState extends State<AddItemPage> {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$_api_base_url/add_item.php'),
+        Uri.parse('$_api_base_url/add_item.php'), // ใช้ _api_base_url ที่ดึงมาจาก .env
       );
 
       request.fields['name'] = _name_controller.text.trim();
@@ -273,13 +277,11 @@ class _AddItemPageState extends State<AddItemPage> {
         if (response.statusCode == 200) {
           final response_data = jsonDecode(utf8.decode(response.bodyBytes));
           if (response_data['status'] == 'success') {
-            // **เปลี่ยนข้อความเป็นภาษาไทย**
             _show_success_message('เพิ่มรายการสำเร็จแล้ว!');
-            // **เรียก callback เพื่อแจ้งให้หน้าก่อนหน้ารีโหลดข้อมูล**
             if (widget.on_item_added != null) {
               widget.on_item_added!();
             }
-            Navigator.pop(context); // กลับหน้าก่อนหน้า
+            Navigator.pop(context);
           } else {
             _show_error_message('Error: ${response_data['message']}');
           }
@@ -550,7 +552,7 @@ class _AddItemPageState extends State<AddItemPage> {
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(
                                 border: InputBorder.none,
-                                hintText: '3',
+                                hintText: '',
                                 contentPadding: EdgeInsets.symmetric(vertical: 12),
                               ),
                               validator: (value) {
