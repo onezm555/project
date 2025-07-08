@@ -63,7 +63,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
       if (response.statusCode == 200) {
         final response_data = json.decode(utf8.decode(response.bodyBytes));
-        if (response_data['success']) {
+        if (response_data['success'] == true) {
           final List<dynamic> items = response_data['data'];
           Map<String, List<Map<String, dynamic>>> new_expiry_items_by_date = {};
 
@@ -113,19 +113,6 @@ class _CalendarPageState extends State<CalendarPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        backgroundColor: Colors.grey[50],
-        elevation: 0,
-        title: const Text(
-          'ปฏิทินหมดอายุ',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: Colors.black,
-          ),
-        ),
-        centerTitle: true,
-      ),
       body: _is_loading
           ? const Center(child: CircularProgressIndicator())
           : _error_message != null
@@ -162,7 +149,7 @@ class _CalendarPageState extends State<CalendarPage> {
                             SizedBox(height: 16),
                             Text(
                               'ไม่พบสิ่งของเพิ่มการเก็บวันหมดอายุของคุณ',
-                              style: TextStyle(fontSize: 18, color: Colors.grey),
+                              style: TextStyle(fontSize: 20, color: Color(0xFF4A90E2)),
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -257,7 +244,7 @@ class _CalendarPageState extends State<CalendarPage> {
           children: [
             const Text(
               'แสดงเฉพาะเดือนที่มีสินค้าหมดอายุ (ทุกปี)',
-              style: TextStyle(fontSize: 14),
+              style: TextStyle(fontSize: 16, color: Color(0xFF4A90E2)),
             ),
             Switch(
               value: _show_only_expiry_months,
@@ -344,7 +331,11 @@ class _CalendarPageState extends State<CalendarPage> {
           // แสดงชื่อเดือนและปีที่นี่
           Text(
             month_title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF4A90E2),
+            ),
           ),
           const SizedBox(height: 12),
           GridView.builder(
@@ -401,6 +392,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   child: Text( // กลับไปแสดงแค่ตัวเลขวัน
                     '$day',
                     style: TextStyle(
+                      fontSize: 16,
                       color: has_expiry ? const Color(0xFF4A90E2) : Colors.black87,
                       fontWeight: has_expiry ? FontWeight.bold : FontWeight.normal,
                     ),
@@ -436,9 +428,9 @@ class _CalendarPageState extends State<CalendarPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
-          'สินค้าหมดอายุ\n$dialog_date_title', // ใช้ dialog_date_title ที่เตรียมไว้
+          'สินค้าหมดอายุ\n$dialog_date_title',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF4A90E2)),
         ),
         content: items.isEmpty
             ? const Text('ไม่พบสินค้าหมดอายุในวันนี้')
@@ -448,13 +440,10 @@ class _CalendarPageState extends State<CalendarPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: items.map((item_data) {
                     String display_item_name = item_data['item_name'] ?? 'ไม่มีชื่อ';
-                    // แสดงปีพุทธศักราชของวันหมดอายุจริง ๆ ในรายละเอียดสินค้าแต่ละรายการ
                     try {
                       DateTime expiry_date = DateTime.parse(item_data['item_date']);
-                      display_item_name += ' (${expiry_date.year + 543} พ.ศ.)'; // แสดงปี พ.ศ. ของวันหมดอายุ
-                    } catch (e) {
-                      // ไม่ต้องทำอะไรถ้า parse ไม่ได้
-                    }
+                      display_item_name += ' (${expiry_date.year + 543} พ.ศ.)';
+                    } catch (e) {}
 
                     return GestureDetector(
                       onTap: () {
@@ -462,7 +451,16 @@ class _CalendarPageState extends State<CalendarPage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => ItemDetailPage(item_data: item_data),
+                            builder: (context) => ItemDetailPage(
+                              item_data: {
+                                ...item_data,
+                                'item_img': item_data['item_img_full_url'],
+                                'category': item_data['category'],
+                                'storage_location': item_data['storage_location'],
+                                'name': item_data['item_name'],
+                                'barcode': item_data['item_barcode'],
+                              },
+                            ),
                           ),
                         );
                       },
@@ -480,7 +478,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                   fit: BoxFit.cover,
                                   errorBuilder: (context, error, stackTrace) {
                                     return Image.asset(
-                                      'assets/images/default.png', // ตรวจสอบ path รูป default ของคุณ
+                                      'assets/images/default.png',
                                       width: 40,
                                       height: 40,
                                       fit: BoxFit.cover,
@@ -490,7 +488,7 @@ class _CalendarPageState extends State<CalendarPage> {
                               )
                             else
                               Image.asset(
-                                'assets/images/default.png', // ตรวจสอบ path รูป default ของคุณ
+                                'assets/images/default.png',
                                 width: 40,
                                 height: 40,
                                 fit: BoxFit.cover,

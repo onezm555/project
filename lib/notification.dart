@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'item_detail_page.dart';
 
 class NotificationPage extends StatefulWidget {
   const NotificationPage({Key? key}) : super(key: key);
@@ -33,8 +35,7 @@ class _NotificationPageState extends State<NotificationPage> {
       });
       return;
     }
-    // TODO: Replace with your API endpoint
-    final String apiUrl = 'http://localhost/project/my_items.php?user_id=$userId';
+    final String apiUrl = '${dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'}/my_items.php?user_id=$userId';
     try {
       final response = await http.get(Uri.parse(apiUrl));
       if (response.statusCode == 200) {
@@ -58,6 +59,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 'date': 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}',
                 'is_expired': daysLeft < 0,
                 'created_at': now,
+                'item_data': item, // เพิ่มข้อมูลดิบของสินค้า
               });
             }
           }
@@ -186,95 +188,128 @@ class _NotificationPageState extends State<NotificationPage> {
   // Widget การ์ดการแจ้งเตือน
   Widget _build_notification_card(Map<String, dynamic> notification) {
     final is_expired = notification['is_expired'] as bool;
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.grey.withOpacity(0.1),
-          width: 1,
+    return GestureDetector(
+      onTap: () async {
+        // ดึงข้อมูลสินค้าทั้งหมดจาก _notifications หรือ fetch ใหม่จาก API ถ้าต้องการข้อมูลเต็ม
+        // ในที่นี้จะลอง fetch ใหม่จาก API เพื่อให้ได้ข้อมูลล่าสุดและครบถ้วน
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        final int? userId = prefs.getInt('user_id');
+        if (userId == null) return;
+        final String apiUrl = '${dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'}/my_items.php?user_id=$userId';
+        try {
+          final response = await http.get(Uri.parse(apiUrl));
+          if (response.statusCode == 200) {
+            final responseData = jsonDecode(response.body);
+            if (responseData['success'] == true) {
+              // หา item ที่ id ตรงกับ notification['id']
+              final item = (responseData['data'] as List).firstWhere(
+                (i) => i['item_id'].toString() == notification['id'].toString(),
+                orElse: () => null,
+              );
+              if (item != null) {
+                // เปิดหน้ารายละเอียดสินค้า
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ItemDetailPage(item_data: item),
+                  ),
+                );
+              }
+            }
+          }
+        } catch (e) {
+          // ไม่ต้องทำอะไรถ้า error
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.grey.withOpacity(0.1),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // ไอคอนสถานะ
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: is_expired ? Colors.red.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
+        child: Row(
+          children: [
+            // ไอคอนสถานะ
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: is_expired ? Colors.red.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(
+                is_expired ? Icons.error_outline : Icons.warning_outlined,
+                color: is_expired ? Colors.red : Colors.orange,
+                size: 20,
+              ),
             ),
-            child: Icon(
-              is_expired ? Icons.error_outline : Icons.warning_outlined,
-              color: is_expired ? Colors.red : Colors.orange,
-              size: 20,
-            ),
-          ),
-          
-          const SizedBox(width: 12),
-          
-          // ข้อมูลการแจ้งเตือน
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ชื่อสินค้า
-                Text(
-                  notification['title'],
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+            
+            const SizedBox(width: 12),
+            
+            // ข้อมูลการแจ้งเตือน
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ชื่อสินค้า
+                  Text(
+                    notification['title'],
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 4),
-                
-                // รายละเอียด
-                Text(
-                  notification['description'],
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: is_expired ? Colors.red : Colors.orange,
-                    fontWeight: FontWeight.w500,
+                  
+                  const SizedBox(height: 4),
+                  
+                  // รายละเอียด
+                  Text(
+                    notification['description'],
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: is_expired ? Colors.red : Colors.orange,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 4),
-                
-                // วันที่หมดอายุ
-                Text(
-                  notification['date'],
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
+                  
+                  const SizedBox(height: 4),
+                  
+                  // วันที่หมดอายุ
+                  Text(
+                    notification['date'],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          
-          // ปุ่มลบ
-          IconButton(
-            onPressed: () => _delete_notification(notification['id']),
-            icon: const Icon(
-              Icons.delete_outline,
-              color: Colors.grey,
-              size: 20,
+            
+            // ปุ่มลบ
+            IconButton(
+              onPressed: () => _delete_notification(notification['id']),
+              icon: const Icon(
+                Icons.delete_outline,
+                color: Colors.grey,
+                size: 20,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

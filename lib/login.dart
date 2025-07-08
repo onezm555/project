@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
 
+import 'request_otp_page.dart'; 
 import 'register.dart';
 import 'main_layout.dart';
+import 'forgot_password.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -75,10 +77,11 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
-          
-          if (responseData['status'] == 'success' && responseData['user_id'] != null) {
+
+          if (responseData['status'] == 'success' &&
+              responseData['user_id'] != null) {
             final int userId = responseData['user_id'];
-            
+
             SharedPreferences prefs = await SharedPreferences.getInstance();
             await prefs.setInt('user_id', userId);
             // บันทึกอีเมลและรหัสผ่าน
@@ -93,14 +96,15 @@ class _LoginPageState extends State<LoginPage> {
             );
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(
-                builder: (context) => const MainLayout(),
-              ),
+              MaterialPageRoute(builder: (context) => const MainLayout()),
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(responseData['message'] ?? 'เข้าสู่ระบบไม่สำเร็จ: ไม่พบ User ID'),
+                content: Text(
+                  responseData['message'] ??
+                      'เข้าสู่ระบบไม่สำเร็จ: ไม่พบ User ID',
+                ),
                 backgroundColor: Colors.red,
               ),
             );
@@ -136,9 +140,7 @@ class _LoginPageState extends State<LoginPage> {
   void _navigate_to_register() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const RegisterPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const RegisterPage()),
     );
   }
 
@@ -219,7 +221,9 @@ class _LoginPageState extends State<LoginPage> {
                     if (value == null || value.isEmpty) {
                       return 'กรุณากรอกอีเมล';
                     }
-                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                    if (!RegExp(
+                      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                    ).hasMatch(value)) {
                       return 'รูปแบบอีเมลไม่ถูกต้อง';
                     }
                     return null;
@@ -234,7 +238,9 @@ class _LoginPageState extends State<LoginPage> {
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _is_password_visible ? Icons.visibility : Icons.visibility_off,
+                        _is_password_visible
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                       ),
                       onPressed: () {
                         setState(() {
@@ -291,7 +297,9 @@ class _LoginPageState extends State<LoginPage> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
                         : const Text(
@@ -306,9 +314,11 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('ฟังก์ชันลืมรหัสผ่านยังไม่พร้อมใช้งาน'),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const RequestOtpPage(), // Navigate to the new page
                       ),
                     );
                   },
@@ -327,10 +337,7 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     const Text(
                       'ยังไม่มีบัญชี? ',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                      ),
+                      style: TextStyle(color: Colors.grey, fontSize: 14),
                     ),
                     GestureDetector(
                       onTap: _navigate_to_register,

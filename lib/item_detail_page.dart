@@ -1,5 +1,9 @@
 // item_detail_page.dart
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http; // Import http package
+import 'dart:convert'; // Import for json.decode
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
 
 class ItemDetailPage extends StatefulWidget {
   final Map<String, dynamic> item_data;
@@ -26,9 +30,14 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   String _selected_category = '';
   String _selected_storage = '';
 
+  // Base URL for your API. Now loaded from .env
+  late String _apiBaseUrl; // ใช้ late เพื่อบ่งบอกว่าจะถูก initialize ใน initState
+
   @override
   void initState() {
     super.initState();
+    // ดึงค่าจาก .env
+    _apiBaseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'; // กำหนดค่า default ถ้าหาไม่เจอ
     _populate_fields();
   }
 
@@ -38,20 +47,111 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     _name_controller.text = item['name'] ?? '';
     _quantity_controller.text = item['quantity']?.toString() ?? '1';
     _barcode_controller.text = item['barcode'] ?? '';
-    _notification_days_controller.text = item['notification_days']?.toString() ?? '3';
+    // ใช้เฉพาะ item_notification และแสดง 0 ได้
+    _notification_days_controller.text = (item['item_notification'] != null && item['item_notification'].toString().trim().isNotEmpty)
+        ? item['item_notification'].toString()
+        : '-';
 
-    _selected_unit = item['date_type'] ?? 'วันหมดอายุ(EXP)';
+    // แก้ไขให้ดึง unit จาก key 'unit' (หรือ 'date_type' ถ้าไม่มี)
+    _selected_unit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
     _selected_category = item['category'] ?? 'เลือกประเภท';
     _selected_storage = item['storage_location'] ?? 'เลือกพื้นที่จัดเก็บ';
 
-    if (item['selected_date'] != null) {
+    if (item['item_date'] != null) {
       try {
-        _selected_date = DateTime.parse(item['selected_date']);
+        _selected_date = DateTime.parse(item['item_date']);
       } catch (e) {
-        debugPrint('Error parsing date: ${item['selected_date']} - $e');
+        debugPrint('Error parsing date: ${item['item_date']} - $e');
         _selected_date = DateTime.now().add(const Duration(days: 7));
       }
     }
+  }
+
+  Future<void> _delete_item() async {
+    // Show a confirmation dialog
+    bool confirmDelete = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('ยืนยันการลบ'),
+          content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบสิ่งของนี้?'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false), // User cancels
+              child: const Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true), // User confirms
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('ลบ', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    ) ?? false; // In case dialog is dismissed without selection
+
+    if (!confirmDelete) {
+      return; // If user cancels, do nothing
+    }
+
+    final String url = '$_apiBaseUrl/delete_item.php'; // ใช้ _apiBaseUrl ที่ได้จาก .env
+    // รองรับทั้ง item_id และ id
+    int? itemId = widget.item_data['item_id'];
+    if (itemId == null && widget.item_data['id'] != null) {
+      // บางหน้าส่งมาเป็น 'id' แทน 'item_id'
+      itemId = widget.item_data['id'] is int
+          ? widget.item_data['id']
+          : int.tryParse(widget.item_data['id'].toString());
+    }
+
+    int? userId = widget.item_data['user_id'];
+    if (userId == null) {
+      // ถ้าไม่มี user_id ใน item_data ให้ดึงจาก SharedPreferences
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        userId = prefs.getInt('user_id');
+      } catch (e) {
+        debugPrint('Error loading user_id from SharedPreferences: $e');
+      }
+    }
+
+    if (itemId == null || userId == null) {
+      _show_snackbar('Error: Item ID or User ID is missing.', Colors.red);
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        body: {
+          'item_id': itemId.toString(),
+          'user_id': userId.toString(),
+        },
+      );
+
+      final Map<String, dynamic> responseData = json.decode(response.body);
+
+      if (response.statusCode == 200 && responseData['status'] == 'success') {
+        _show_snackbar(responseData['message'] ?? 'Item deleted successfully!', Colors.green);
+        // Navigate back after successful deletion, likely to the previous list page
+        Navigator.of(context).pop(true); // Pass true to indicate a change occurred
+      } else {
+        _show_snackbar(responseData['message'] ?? 'Failed to delete item.', Colors.red);
+      }
+    } catch (e) {
+      debugPrint('Error deleting item: $e');
+      _show_snackbar('An error occurred: ${e.toString()}', Colors.red);
+    }
+  }
+
+  void _show_snackbar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -83,6 +183,13 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
           ),
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            tooltip: 'ลบสิ่งของ',
+            onPressed: _delete_item, // Call the delete function
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -144,11 +251,11 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: widget.item_data['image'] != null &&
-                              (widget.item_data['image'] as String).isNotEmpty &&
-                              (widget.item_data['image'] as String) != 'lib/img/default.png'
+                      child: widget.item_data['item_img'] != null &&
+                          (widget.item_data['item_img'] as String).isNotEmpty &&
+                          (widget.item_data['item_img'] as String) != 'lib/img/default.png'
                           ? Image.network(
-                              widget.item_data['image'],
+                              widget.item_data['item_img'],
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) {
                                 return Container(
@@ -254,7 +361,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     ),
                     child: _build_text_display(
                       controller: _notification_days_controller,
-                      hint: '3',
+                      hint: '', // เปลี่ยนจาก '3' เป็นค่าว่าง
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -279,6 +386,61 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
               const SizedBox(height: 32),
 
               // ไม่มีปุ่มบันทึกในหน้ารายละเอียด
+              // Add the new buttons here
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          // Handle "แก้ไขข้อมูล" (Edit Information) button press
+                          debugPrint('แก้ไขข้อมูล button pressed');
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue, // Blue button
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                        ),
+                        child: const Text(
+                          'แก้ไขข้อมูล',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16), // Space between buttons
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          // Handle "ทิ้งสิ่งของ/สิ่งของหมด" (Discard Item/Out of Stock) button press
+                          debugPrint('ทิ้งสิ่งของ/สิ่งของหมด button pressed');
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red, // Red button
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                        ),
+                        child: const Text(
+                          'ทิ้งสิ่งของ/สิ่งของหมด',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

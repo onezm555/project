@@ -89,6 +89,7 @@ class _RegisterPageState extends State<RegisterPage> {
             );
           } else {
             // สมัครสมาชิกไม่สำเร็จจากข้อผิดพลาดที่มาจาก API
+            // แม้ statusCode เป็น 200 แต่ status ใน JSON เป็น 'error'
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(responseData['message']),
@@ -97,10 +98,24 @@ class _RegisterPageState extends State<RegisterPage> {
             );
           }
         } else {
-          // จัดการกับ status code ที่ไม่ใช่ 200 (เช่น 400, 500)
+          // ส่วนที่แก้ไข: จัดการกับ status code ที่ไม่ใช่ 200 (เช่น 400, 409, 500)
+          String errorMessage = 'เกิดข้อผิดพลาดที่ไม่รู้จัก'; // ข้อความเริ่มต้นหากอ่านไม่ได้
+          try {
+            final Map<String, dynamic> errorResponseData = jsonDecode(response.body);
+            if (errorResponseData.containsKey('message')) {
+              errorMessage = errorResponseData['message']; // ดึงข้อความผิดพลาดจาก Server
+            } else {
+              // กรณีที่ Server ส่ง statusCode ไม่ใช่ 200 แต่ไม่มี 'message' ใน JSON
+              errorMessage = 'Server ตอบกลับมาไม่ถูกต้อง: ${response.statusCode}';
+            }
+          } catch (e) {
+            // ถ้า Response body ไม่ใช่ JSON ที่ถูกต้อง ก็ใช้ข้อความผิดพลาดทั่วไป
+            errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์ หรือข้อมูลเสียหาย';
+          }
+
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์'),
+            SnackBar(
+              content: Text(errorMessage), // แสดงข้อความที่ได้จาก Server หรือข้อความทั่วไป
               backgroundColor: Colors.red,
             ),
           );

@@ -251,7 +251,7 @@ class _AddItemPageState extends State<AddItemPage> {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$_api_base_url/add_item.php'), // ใช้ _api_base_url ที่ดึงมาจาก .env
+        Uri.parse('$_api_base_url/add_item.php'),
       );
 
       request.fields['name'] = _name_controller.text.trim();
@@ -278,9 +278,23 @@ class _AddItemPageState extends State<AddItemPage> {
           final response_data = jsonDecode(utf8.decode(response.bodyBytes));
           if (response_data['status'] == 'success') {
             _show_success_message('เพิ่มรายการสำเร็จแล้ว!');
+            // Reset form fields
+            _name_controller.clear();
+            _quantity_controller.text = '1';
+            _barcode_controller.clear();
+            _price_controller.clear();
+            _notification_days_controller.clear();
+            setState(() {
+              _selected_date = DateTime.now().add(const Duration(days: 7));
+              _selected_unit = 'วันหมดอายุ(EXP)';
+              _selected_category = 'เลือกประเภท';
+              _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+              _picked_image = null;
+            });
             if (widget.on_item_added != null) {
               widget.on_item_added!();
             }
+            // ปิดหน้านี้หลังรีเซ็ต (ถ้าต้องการให้ปิดทันที)
             Navigator.pop(context);
           } else {
             _show_error_message('Error: ${response_data['message']}');

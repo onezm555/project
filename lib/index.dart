@@ -1,273 +1,301 @@
+// index.dart
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // <--- (1) เพิ่ม import นี้
-import 'item_detail_page.dart'; // **ปรับเปลี่ยนตาม path ของคุณ**
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'item_detail_page.dart'; // ตรวจสอบให้แน่ใจว่า import ถูกต้อง
+import 'add_item.dart'; // เพิ่มบรรทัดนี้เพื่อให้สามารถใช้ AddItemPage ได้
 
 class IndexPage extends StatefulWidget {
   const IndexPage({Key? key}) : super(key: key);
 
   @override
-  State<IndexPage> createState() => _IndexPageState();
+  // ทำให้ createState() คืนค่าเป็น IndexPageState (ไม่ใช่ _IndexPageState)
+  State<IndexPage> createState() => IndexPageState();
 }
 
-class _IndexPageState extends State<IndexPage> {
+// ทำให้คลาส State เป็น public โดยลบ underscore ออก
+class IndexPageState extends State<IndexPage> {
   List<Map<String, dynamic>> _stored_items = [];
   bool _is_loading = true;
   String? _api_message;
   bool _is_true_error = false;
-  String _api_base_url = ''; // <--- (2) เพิ่มตัวแปรนี้สำหรับเก็บ base URL
+  String _api_base_url = '';
+  // เพิ่มตัวแปรสำหรับเก็บสถานะฟิลเตอร์ปัจจุบัน
+  Map<String, dynamic> _current_filters = {};
 
   @override
   void initState() {
     super.initState();
-    // <--- (3) ดึงค่าจาก .env เมื่อ initState
     _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
-    _fetch_items_data();
+    // เรียกใช้ fetchItemsData โดยไม่มี filters ในการโหลดครั้งแรก
+    fetchItemsData();
   }
 
-  Future<void> _fetch_items_data() async {
+  // เปลี่ยนชื่อฟังก์ชันเป็น public (จาก _fetch_items_data)
+  Future<void> fetchItemsData({Map<String, dynamic>? filters}) async {
     setState(() {
       _is_loading = true;
       _api_message = null;
       _is_true_error = false;
-      _stored_items = [];
+      _current_filters = filters ?? {}; // อัปเดตฟิลเตอร์ปัจจุบัน
     });
 
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    final int? userId = prefs.getInt('user_id');
+    final prefs = await SharedPreferences.getInstance();
+    final user_id = prefs.getInt('user_id');
 
-    if (userId == null) {
+    if (user_id == null) {
       setState(() {
-        _api_message = 'ไม่พบ User ID กรุณาเข้าสู่ระบบใหม่';
-        _is_true_error = true;
         _is_loading = false;
+        _api_message = 'User not logged in.';
+        _is_true_error = true;
       });
       return;
     }
 
-    // <--- (4) ใช้ _api_base_url ที่ดึงมาจาก .env เพื่อสร้าง apiUrl
-    final String apiUrl = '$_api_base_url/my_items.php?user_id=$userId'; //
+    // *** แก้ไขตรงนี้: เปลี่ยนจาก get_items.php เป็น my_items.php ตามที่คุณแจ้ง ***
+    String url = '$_api_base_url/my_items.php?user_id=$user_id';
+    if (filters != null && filters.isNotEmpty) {
+      filters.forEach((key, value) {
+        if (value != null && value.toString().isNotEmpty) {
+          url += '&$key=$value';
+        }
+      });
+    }
 
     try {
-      final response = await http.get(Uri.parse(apiUrl)); //
+      final response = await http.get(Uri.parse(url));
 
-      if (response.statusCode == 200) { //
-        final responseData = jsonDecode(response.body); //
-        if (responseData['success'] == true) { //
-          List<Map<String, dynamic>> fetchedItems = []; //
-          for (var itemJson in responseData['data']) { //
-            DateTime expireDate = DateTime.parse(itemJson['item_date']); //
-            DateTime now = DateTime.now(); //
-            int daysLeft = expireDate.difference(now).inDays; //
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
 
-            fetchedItems.add({ //
-              'id': itemJson['item_id'], //
-              'name': itemJson['item_name'], //
-              'image': itemJson['item_img_full_url'] ?? 'lib/img/default.png', //
-              'quantity': itemJson['item_number'], //
-              'unit': itemJson['item_unit'] ?? 'ชิ้น', // ดึง unit จาก API ด้วย
-              'expire_date': itemJson['item_date'], //
-              'storage_location': itemJson['storage_location'] ?? 'ไม่ได้ระบุ', // ดึง storage_location จาก API
-              'category': itemJson['category'] ?? 'ไม่ได้ระบุ', // ดึง category จาก API
-              'date_type': itemJson['date_type'] ?? 'วันหมดอายุ(EXP)', // ดึง date_type จาก API
-              'notification_days': itemJson['notification_days'] != null ? int.tryParse(itemJson['notification_days'].toString()) : 3, // ดึง notification_days
-              'barcode': itemJson['barcode'] ?? '', // ดึง barcode
-              'selected_date': itemJson['item_date'], // ใช้ item_date เป็น selected_date
-              'days_left': daysLeft, //
-            });
-          }
-          setState(() { //
-            _stored_items = fetchedItems; //
+        if (responseData['success'] == true) {
+          List<dynamic> itemsData = responseData['data'] ?? [];
+          setState(() {
+            _stored_items = itemsData.map((item) => item as Map<String, dynamic>).toList();
+            _is_loading = false;
           });
         } else {
-          setState(() { //
-            _api_message = responseData['message'] ?? 'ไม่พบข้อมูลสินค้า'; //
-            _is_true_error = false; //
-            _stored_items = []; //
+          setState(() {
+            _api_message = responseData['message'] ?? 'Failed to load items.';
+            _is_true_error = true;
+            _is_loading = false;
+            _stored_items = []; // Clear items on error
           });
         }
       } else {
-        setState(() { //
-          _api_message = 'เกิดข้อผิดพลาดในการดึงข้อมูล: ${response.statusCode}'; //
-          _is_true_error = true; //
+        setState(() {
+          _api_message = 'Server error: ${response.statusCode}';
+          _is_true_error = true;
+          _is_loading = false;
+          _stored_items = [];
         });
       }
     } catch (e) {
-      setState(() { //
-        _api_message = 'เกิดข้อผิดพลาดในการเชื่อมต่อ: $e'; //
-        _is_true_error = true; //
+      setState(() {
+        _api_message = 'Error fetching data: $e';
+        _is_true_error = true;
+        _is_loading = false;
+        _stored_items = [];
       });
-    } finally {
-      setState(() { //
-        _is_loading = false; //
-      });
+    }
+  }
+
+  // Helper function to calculate days left
+  int _calculate_days_left(String item_date) {
+    try {
+      final expire_date = DateTime.parse(item_date);
+      final today = DateTime.now();
+      return expire_date.difference(today).inDays;
+    } catch (e) {
+      return -9999; // Indicate an error or invalid date
+    }
+  }
+
+  // Helper function to get status text and color
+  Map<String, dynamic> _get_status_info(int days_left) {
+    if (days_left < 0) {
+      return {'text': 'หมดอายุแล้ว', 'color': Colors.red};
+    } else if (days_left <= 7) {
+      return {'text': 'ใกล้หมดอายุ', 'color': Colors.orange};
+    } else {
+      return {'text': '', 'color': Colors.green};
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        backgroundColor: Colors.grey[50],
+        elevation: 0,
+        title: const Text(
+          'รายการสินค้า',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: _is_loading
           ? const Center(child: CircularProgressIndicator())
           : _is_true_error
-              ? _build_error_state(_api_message!)
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                      const SizedBox(height: 10),
+                      Text(
+                        _api_message ?? 'An unknown error occurred.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red, fontSize: 16),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: () => fetchItemsData(filters: _current_filters), // Retry with current filters
+                        child: const Text('ลองอีกครั้ง'),
+                      ),
+                    ],
+                  ),
+                )
               : _stored_items.isEmpty
-                  ? _build_empty_state()
-                  : _build_items_list(),
-    );
-  }
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.info_outline, color: Colors.grey, size: 40),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'ไม่พบรายการสินค้า',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16.0),
+                      itemCount: _stored_items.length,
+                      itemBuilder: (context, index) {
+                        final item = _stored_items[index];
+                        final days_left = _calculate_days_left(item['item_date']);
+                        final status_info = _get_status_info(days_left);
 
-  Widget _build_error_state(String message) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 80,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'ข้อผิดพลาด: $message',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-                color: Colors.red,
+                        return _build_item_card(
+                          item: item,
+                          days_left: days_left,
+                          status_text: status_info['text'],
+                          status_color: status_info['color'],
+                        );
+                      },
+                    ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AddItemPage(
+                on_item_added: () {
+                  fetchItemsData();
+                },
               ),
-              textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: _fetch_items_data,
-              child: const Text('ลองอีกครั้ง'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _build_empty_state() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.inventory_2_outlined,
-            size: 80,
-            color: Colors.grey,
-          ),
-          SizedBox(height: 16),
-          Text(
-            'ไม่พบการเก็บวันหมดอายุของคุณ',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          SizedBox(height: 8),
-          Text(
-            'เริ่มต้นเพิ่มสินค้าแรกของคุณ',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _build_items_list() {
-    return RefreshIndicator(
-      onRefresh: _fetch_items_data,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16.0),
-        itemCount: _stored_items.length,
-        itemBuilder: (context, index) {
-          final item = _stored_items[index];
-          return _build_item_card(item, index);
+          );
         },
+        child: const Icon(Icons.add),
+        backgroundColor: const Color(0xFF4A90E2),
       ),
     );
   }
 
-  Widget _build_item_card(Map<String, dynamic> item, int index) {
-    final days_left = item['days_left'] as int; //
-    Color status_color;
-    String status_text;
-
-    if (days_left < 0) { //
-      status_color = Colors.red; //
-      status_text = 'หมดอายุแล้ว'; //
-    } else if (days_left == 0) { //
-      status_color = Colors.red; //
-      status_text = 'หมดอายุวันนี้'; //
-    } else if (days_left <= 7) { //
-      status_color = Colors.orange; //
-      status_text = 'ใกล้หมดอายุ'; //
-    } else {
-      status_color = Colors.green; //
-      status_text = 'อยู่ที่${item['storage_location']}'; //
-    }
-
+  // Widget สำหรับสร้างการ์ดรายการสินค้า
+  Widget _build_item_card({
+    required Map<String, dynamic> item,
+    required int days_left,
+    required String status_text,
+    required Color status_color,
+  }) {
     return GestureDetector(
-      onTap: () {
-        // Navigate to ItemDetailPage when card is tapped
-        Navigator.push(
+      onTap: () async {
+        final bool? result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ItemDetailPage(item_data: item),
+            builder: (context) => ItemDetailPage(
+              item_data: {
+                'item_id': item['item_id'],
+                'user_id': item['user_id'],
+                'name': item['item_name'],
+                'quantity': item['item_number'],
+                'barcode': item['item_barcode'],
+                'item_notification': item['item_notification'],
+                'unit': item['date_type'] ?? item['unit'],
+                'category': item['type_name'] ?? item['category'],
+                'storage_location': item['area_name'] ?? item['storage_location'],
+                'item_date': item['item_date'],
+                'item_img': item['item_img_full_url'],
+              },
+            ),
           ),
         );
+        if (result == true) {
+          fetchItemsData(filters: _current_filters);
+        }
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
               color: Colors.grey.withOpacity(0.1),
-              blurRadius: 8,
+              blurRadius: 10,
               offset: const Offset(0, 2),
             ),
           ],
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // รูปภาพ
             Container(
-              width: 60,
-              height: 60,
+              width: 70,
+              height: 70,
               decoration: BoxDecoration(
                 color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  item['image'], //
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[200],
-                      child: const Icon(
-                        Icons.broken_image,
+                borderRadius: BorderRadius.circular(12),
+                child: item['item_img_full_url'] != null &&
+                        (item['item_img_full_url'] as String).isNotEmpty &&
+                        (item['item_img_full_url'] as String) != 'lib/img/default.png'
+                    ? Image.network(
+                        item['item_img_full_url'],
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.grey[200],
+                            child: const Icon(
+                              Icons.broken_image,
+                              color: Colors.grey,
+                              size: 30,
+                            ),
+                          );
+                        },
+                      )
+                    : const Icon(
+                        Icons.camera_alt_outlined,
                         color: Colors.grey,
-                        size: 30,
+                        size: 32,
                       ),
-                    );
-                  },
-                ),
               ),
             ),
             const SizedBox(width: 16),
@@ -275,60 +303,91 @@ class _IndexPageState extends State<IndexPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item['name'], //
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item['item_name'] ?? 'ไม่มีชื่อ',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'จำนวน: ${item['item_number'] ?? 'N/A'}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _format_expire_date(item['item_date'] ?? '', days_left),
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: status_color,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // ย้ายพื้นที่จัดเก็บ (area_name) ไปด้านขวา
+                      if ((item['storage_location'] ?? '').toString().isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(left: 8, top: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.blue.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            item['storage_location'],
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'จำนวน ${item['quantity']} ${item['unit']}', //
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                  const SizedBox(height: 8),
+                  if (status_text.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: status_color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: status_color.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        status_text,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: status_color,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _format_expire_date(item['expire_date'], days_left), //
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: days_left <= 7 ? Colors.orange : Colors.grey, //
-                      fontWeight: days_left <= 7 ? FontWeight.w500 : FontWeight.normal, //
-                    ),
-                  ),
                 ],
               ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: status_color.withOpacity(0.1), //
-                    borderRadius: BorderRadius.circular(16), //
-                    border: Border.all(
-                      color: status_color.withOpacity(0.3), //
-                      width: 1, //
-                    ),
-                  ),
-                  child: Text(
-                    status_text, //
-                    style: TextStyle(
-                      fontSize: 10, //
-                      color: status_color, //
-                      fontWeight: FontWeight.w500, //
-                    ),
-                    textAlign: TextAlign.center, //
-                  ),
-                ),
-              ],
             ),
           ],
         ),
@@ -336,25 +395,26 @@ class _IndexPageState extends State<IndexPage> {
     );
   }
 
-  String _format_expire_date(String expire_date, int days_left) { //
-    if (days_left < 0) { //
-      return 'หมดอายุแล้ว ${days_left.abs()} วัน'; //
-    } else if (days_left == 0) { //
-      return 'หมดอายุวันนี้'; //
-    } else if (days_left == 1) { //
-      return 'หมดอายุพรุ่งนี้'; //
-    } else if (days_left <= 30) { //
-      return 'หมดอายุอีก $days_left วัน'; //
+  String _format_expire_date(String expire_date, int days_left) {
+    if (days_left < 0) {
+      return 'หมดอายุแล้ว ${days_left.abs()} วัน';
+    } else if (days_left == 0) {
+      return 'หมดอายุวันนี้';
+    } else if (days_left == 1) {
+      return 'หมดอายุพรุ่งนี้';
+    } else if (days_left <= 30) {
+      return 'หมดอายุอีก $days_left วัน';
     } else {
       try {
-        final date = DateTime.parse(expire_date); //
-        final months = [ //
-          '', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', //
-          'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.' //
+        final date = DateTime.parse(expire_date);
+        final months = [
+          '', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+          'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
         ];
-        return 'หมดอายุ ${date.day} ${months[date.month]} ${date.year + 543}'; //
+        final buddhist_year = date.year + 543;
+        return 'หมดอายุ ${date.day} ${months[date.month]} $buddhist_year';
       } catch (e) {
-        return 'หมดอายุ $expire_date'; //
+        return 'ไม่ระบุวันหมดอายุ';
       }
     }
   }
