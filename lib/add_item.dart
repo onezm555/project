@@ -6,12 +6,9 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
 
-// URL พื้นฐานของ API ของคุณ - ลบบรรทัดนี้ออกไป
-// const String _api_base_url = 'http://10.192.168.1.176/project';
 
 class AddItemPage extends StatefulWidget {
   final bool is_existing_item;
-  // เพิ่ม callback สำหรับการรีโหลดข้อมูลในหน้าก่อนหน้า
   final VoidCallback? on_item_added;
 
   const AddItemPage({
@@ -187,10 +184,9 @@ class _AddItemPageState extends State<AddItemPage> {
     return '${date.day} ${thai_months[date.month]} $buddhist_year';
   }
 
-  Future<void> _pick_image() async {
+  Future<void> _pick_image({ImageSource source = ImageSource.gallery}) async {
     final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-
+    final XFile? image = await picker.pickImage(source: source);
     if (image != null) {
       setState(() {
         _picked_image = image;
@@ -232,23 +228,29 @@ class _AddItemPageState extends State<AddItemPage> {
   }
 
   Future<void> _save_item() async {
+    debugPrint('*** save_item function STARTING ***');
     if (!_validate_form_data()) {
+      debugPrint('Form validation failed. Returning.');
       return;
     }
+    debugPrint('Form validation passed.');
 
     if (_current_user_id == null) {
       _show_error_message('ไม่พบข้อมูลผู้ใช้งาน กรุณาลองเข้าสู่ระบบใหม่');
       setState(() {
         _is_loading = false;
       });
+      debugPrint('User ID is null. Returning.');
       return;
     }
+    debugPrint('User ID: $_current_user_id');
 
     setState(() {
       _is_loading = true;
     });
 
     try {
+      debugPrint('Building MultipartRequest...');
       var request = http.MultipartRequest(
         'POST',
         Uri.parse('$_api_base_url/add_item.php'),
@@ -268,39 +270,40 @@ class _AddItemPageState extends State<AddItemPage> {
           'item_img',
           _picked_image!.path,
         ));
+        debugPrint('Image added to request: ${_picked_image!.path}');
+      } else {
+        debugPrint('No image picked.');
       }
 
+      debugPrint('Sending request to: ${request.url}');
       var streamed_response = await request.send();
+      debugPrint('Received streamed response. Status code: ${streamed_response.statusCode}');
+
       var response = await http.Response.fromStream(streamed_response);
+      debugPrint('Received full response. Body length: ${response.bodyBytes.length}');
 
       if (mounted) {
         if (response.statusCode == 200) {
-          final response_data = jsonDecode(utf8.decode(response.bodyBytes));
+          final response_body_decoded = utf8.decode(response.bodyBytes);
+          debugPrint('Decoded response body: $response_body_decoded');
+          final response_data = jsonDecode(response_body_decoded);
+
           if (response_data['status'] == 'success') {
             _show_success_message('เพิ่มรายการสำเร็จแล้ว!');
+            debugPrint('Item added successfully according to API. Resetting form.');
             // Reset form fields
-            _name_controller.clear();
-            _quantity_controller.text = '1';
-            _barcode_controller.clear();
-            _price_controller.clear();
-            _notification_days_controller.clear();
-            setState(() {
-              _selected_date = DateTime.now().add(const Duration(days: 7));
-              _selected_unit = 'วันหมดอายุ(EXP)';
-              _selected_category = 'เลือกประเภท';
-              _selected_storage = 'เลือกพื้นที่จัดเก็บ';
-              _picked_image = null;
-            });
-            if (widget.on_item_added != null) {
-              widget.on_item_added!();
-            }
-            // ปิดหน้านี้หลังรีเซ็ต (ถ้าต้องการให้ปิดทันที)
-            Navigator.pop(context);
+            debugPrint('Checking on_item_added callback...');
+            // ปิดหน้านี้และส่งค่า true กลับไปยังหน้าก่อนหน้า (index)
+            Navigator.pop(context, true);
+            debugPrint('Navigator.pop(context, true) called.');
           } else {
+            debugPrint('API status not success. Message: ${response_data['message']}');
             _show_error_message('Error: ${response_data['message']}');
           }
         } else {
-          _show_error_message('Server error: ${response.statusCode} - ${utf8.decode(response.bodyBytes)}');
+          final error_body_decoded = utf8.decode(response.bodyBytes);
+          debugPrint('Server error. Status code: ${response.statusCode}. Body: $error_body_decoded');
+          _show_error_message('Server error: ${response.statusCode} - $error_body_decoded');
         }
       }
     } catch (error) {
@@ -313,6 +316,7 @@ class _AddItemPageState extends State<AddItemPage> {
         setState(() {
           _is_loading = false;
         });
+        debugPrint('Set _is_loading to false.');
       }
     }
   }
@@ -449,30 +453,74 @@ class _AddItemPageState extends State<AddItemPage> {
                             ),
                           ),
                           const SizedBox(width: 20),
-                          GestureDetector(
-                            onTap: _pick_image,
-                            child: Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[100],
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.grey[300]!),
-                                image: _picked_image != null
-                                    ? DecorationImage(
-                                        image: FileImage(File(_picked_image!.path)),
-                                        fit: BoxFit.cover,
+                          Stack(
+                            children: [
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  image: _picked_image != null
+                                      ? DecorationImage(
+                                          image: FileImage(File(_picked_image!.path)),
+                                          fit: BoxFit.cover,
+                                        )
+                                      : null,
+                                ),
+                                child: _picked_image == null
+                                    ? const Icon(
+                                        Icons.camera_alt_outlined,
+                                        color: Colors.grey,
+                                        size: 32,
                                       )
                                     : null,
                               ),
-                              child: _picked_image == null
-                                  ? const Icon(
-                                      Icons.camera_alt_outlined,
-                                      color: Colors.grey,
-                                      size: 32,
-                                    )
-                                  : null,
-                            ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: PopupMenuButton<String>(
+                                  icon: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(20),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.1),
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                    padding: const EdgeInsets.all(4),
+                                    child: const Icon(Icons.add_a_photo, size: 20, color: Color(0xFF4A90E2)),
+                                  ),
+                                  onSelected: (value) async {
+                                    if (value == 'camera') {
+                                      await _pick_image(source: ImageSource.camera);
+                                    } else if (value == 'gallery') {
+                                      await _pick_image(source: ImageSource.gallery);
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    const PopupMenuItem(
+                                      value: 'camera',
+                                      child: ListTile(
+                                        leading: Icon(Icons.photo_camera),
+                                        title: Text('ถ่ายรูป'),
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
+                                      value: 'gallery',
+                                      child: ListTile(
+                                        leading: Icon(Icons.photo_library),
+                                        title: Text('เลือกรูปจากคลัง'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),

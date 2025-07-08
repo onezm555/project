@@ -56,7 +56,7 @@ class IndexPageState extends State<IndexPage> {
     }
 
     // *** แก้ไขตรงนี้: เปลี่ยนจาก get_items.php เป็น my_items.php ตามที่คุณแจ้ง ***
-    String url = '$_api_base_url/my_items.php?user_id=$user_id';
+    String url = '$_api_base_url/my_items.php?user_id=$user_id&order_by=desc';
     if (filters != null && filters.isNotEmpty) {
       filters.forEach((key, value) {
         if (value != null && value.toString().isNotEmpty) {
@@ -196,16 +196,15 @@ class IndexPageState extends State<IndexPage> {
                     ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          await Navigator.push(
+          final result = await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => AddItemPage(
-                on_item_added: () {
-                  fetchItemsData();
-                },
-              ),
+              builder: (context) => AddItemPage(),
             ),
           );
+          if (result == true) {
+            fetchItemsData();
+          }
         },
         child: const Icon(Icons.add),
         backgroundColor: const Color(0xFF4A90E2),

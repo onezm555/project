@@ -179,6 +179,18 @@ class _CalendarPageState extends State<CalendarPage> {
                         ],
                       ),
                     ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          // เปิดหน้าเพิ่มของใหม่ แล้ว refresh ถ้ากลับมาพร้อมผลลัพธ์ true
+          final result = await Navigator.pushNamed(context, '/add_item');
+          if (result == true) {
+            _fetch_expiry_data();
+          }
+        },
+        backgroundColor: const Color(0xFF4A90E2),
+        child: const Icon(Icons.add),
+        tooltip: 'เพิ่มของใหม่',
+      ),
     );
   }
 

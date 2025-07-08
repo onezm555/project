@@ -4,6 +4,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'item_detail_page.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:permission_handler/permission_handler.dart';
 
 class NotificationPage extends StatefulWidget {
   const NotificationPage({Key? key}) : super(key: key);
@@ -13,33 +17,106 @@ class NotificationPage extends StatefulWidget {
 }
 
 class _NotificationPageState extends State<NotificationPage> {
+  // ฟังก์ชันทดสอบแจ้งเตือนแบบ show() ทันที (ไม่ใช้ schedule)
+  Future<void> _testSimpleNotification() async {
+    try {
+      await flutterLocalNotificationsPlugin.show(
+        88888,
+        'ทดสอบแจ้งเตือนทันที (show)',
+        'นี่คือการแจ้งเตือนแบบ show()',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'expire_channel',
+            'แจ้งเตือนสินค้า',
+            channelDescription: 'แจ้งเตือนวันหมดอายุสินค้า',
+            importance: Importance.max,
+            priority: Priority.high,
+          ),
+        ),
+      );
+      debugPrint('[NOTI] TEST: show() notification sent');
+    } catch (e) {
+      debugPrint('[NOTI] TEST: Error show() notification: $e');
+    }
+  }
+  // ฟังก์ชันทดสอบแจ้งเตือนทันที
+  Future<void> _testImmediateNotification() async {
+    final now = DateTime.now();
+    final testId = 99999;
+    debugPrint('[NOTI] TEST: Scheduling immediate notification');
+    try {
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        testId,
+        'ทดสอบแจ้งเตือนทันที',
+        'นี่คือการแจ้งเตือนทดสอบ',
+        tz.TZDateTime.from(now.add(const Duration(seconds: 2)), tz.local),
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'expire_channel',
+            'แจ้งเตือนสินค้า',
+            channelDescription: 'แจ้งเตือนวันหมดอายุสินค้า',
+            importance: Importance.max,
+            priority: Priority.high,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        matchDateTimeComponents: DateTimeComponents.dateAndTime,
+      );
+      debugPrint('[NOTI] TEST: Immediate notification scheduled');
+    } catch (e) {
+      debugPrint('[NOTI] TEST: Error scheduling immediate notification: $e');
+    }
+  }
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoading = true;
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
 
   @override
   void initState() {
     super.initState();
+    _initializeNotifications();
+    _requestNotificationPermission();
     _fetch_notifications();
   }
 
+  Future<void> _requestNotificationPermission() async {
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+  }
+
+  Future<void> _initializeNotifications() async {
+    tz.initializeTimeZones();
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const InitializationSettings initializationSettings =
+        InitializationSettings(android: initializationSettingsAndroid);
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  }
   Future<void> _fetch_notifications() async {
     setState(() {
       _isLoading = true;
     });
     SharedPreferences prefs = await SharedPreferences.getInstance();
     final int? userId = prefs.getInt('user_id');
+    debugPrint('[NOTI] userId: $userId');
     if (userId == null) {
       setState(() {
         _notifications = [];
         _isLoading = false;
       });
+      debugPrint('[NOTI] No userId found, abort fetch');
       return;
     }
     final String apiUrl = '${dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'}/my_items.php?user_id=$userId';
+    debugPrint('[NOTI] Fetching from: $apiUrl');
     try {
       final response = await http.get(Uri.parse(apiUrl));
+      debugPrint('[NOTI] API status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
+        debugPrint('[NOTI] API response: $responseData');
         if (responseData['success'] == true) {
           List<Map<String, dynamic>> notiList = [];
           final now = DateTime.now();
@@ -48,6 +125,9 @@ class _NotificationPageState extends State<NotificationPage> {
             final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
             final notifyDate = expireDate.subtract(Duration(days: notifyDays));
             final daysLeft = expireDate.difference(now).inDays;
+            debugPrint('[NOTI] Item: ${item['item_name']} | expire: $expireDate | notifyDays: $notifyDays | notifyDate: $notifyDate | daysLeft: $daysLeft');
+            // Schedule local notification
+            _scheduleNotification(item, notifyDate, daysLeft);
             if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
               notiList.add({
                 'id': item['item_id'],
@@ -63,23 +143,27 @@ class _NotificationPageState extends State<NotificationPage> {
               });
             }
           }
+          debugPrint('[NOTI] notiList.length: ${notiList.length}');
           setState(() {
             _notifications = notiList;
             _isLoading = false;
           });
         } else {
+          debugPrint('[NOTI] API success==false');
           setState(() {
             _notifications = [];
             _isLoading = false;
           });
         }
       } else {
+        debugPrint('[NOTI] API status != 200');
         setState(() {
           _notifications = [];
           _isLoading = false;
         });
       }
     } catch (e) {
+      debugPrint('[NOTI] Exception: $e');
       setState(() {
         _notifications = [];
         _isLoading = false;
@@ -87,20 +171,93 @@ class _NotificationPageState extends State<NotificationPage> {
     }
   }
 
+  Future<void> _scheduleNotification(Map<String, dynamic> item, DateTime notifyDate, int daysLeft) async {
+    final now = DateTime.now();
+    final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
+    debugPrint('[NOTI] _scheduleNotification: itemId=$itemId, notifyDate=$notifyDate, now=$now, daysLeft=$daysLeft');
+    if (notifyDate.isAfter(now)) {
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          itemId,
+          'สินค้าใกล้หมดอายุ',
+          daysLeft < 0
+              ? '${item['item_name']} หมดอายุแล้ว'
+              : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน',
+          tz.TZDateTime.from(notifyDate, tz.local),
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'expire_channel',
+              'แจ้งเตือนสินค้า',
+              channelDescription: 'แจ้งเตือนวันหมดอายุสินค้า',
+              importance: Importance.max,
+              priority: Priority.high,
+            ),
+          ),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          matchDateTimeComponents: DateTimeComponents.dateAndTime,
+        );
+        debugPrint('[NOTI] zonedSchedule success for itemId=$itemId');
+      } catch (e) {
+        debugPrint('[NOTI] zonedSchedule ERROR for itemId=$itemId: $e');
+      }
+    } else {
+      debugPrint('[NOTI] Not scheduling: notifyDate ($notifyDate) is not after now ($now)');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_notifications.isEmpty) {
-      return _build_empty_state();
-    }
-    return RefreshIndicator(
-      onRefresh: _fetch_notifications,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _notifications.isEmpty
+              ? _build_empty_state()
+              : RefreshIndicator(
+                  onRefresh: _fetch_notifications,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      ..._build_notification_sections(),
+                    ],
+                  ),
+                ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          ..._build_notification_sections(),
+          FloatingActionButton(
+            heroTag: 'test_noti',
+            onPressed: () async {
+              await _testImmediateNotification();
+            },
+            backgroundColor: Colors.orange,
+            child: const Icon(Icons.notifications_active),
+            tooltip: 'ทดสอบแจ้งเตือน (schedule)',
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'test_simple',
+            onPressed: () async {
+              await _testSimpleNotification();
+            },
+            backgroundColor: Colors.redAccent,
+            child: const Icon(Icons.notification_important),
+            tooltip: 'ทดสอบแจ้งเตือนทันที (show)',
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'add_item',
+            onPressed: () async {
+              final result = await Navigator.pushNamed(context, '/add_item');
+              if (result == true) {
+                _fetch_notifications();
+              }
+            },
+            backgroundColor: const Color(0xFF4A90E2),
+            child: const Icon(Icons.add),
+            tooltip: 'เพิ่มของใหม่',
+          ),
         ],
       ),
     );
