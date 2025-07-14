@@ -194,21 +194,6 @@ class IndexPageState extends State<IndexPage> {
                         );
                       },
                     ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => AddItemPage(),
-            ),
-          );
-          if (result == true) {
-            fetchItemsData();
-          }
-        },
-        child: const Icon(Icons.add),
-        backgroundColor: const Color(0xFF4A90E2),
-      ),
     );
   }
 

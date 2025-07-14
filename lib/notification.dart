@@ -49,7 +49,7 @@ class _NotificationPageState extends State<NotificationPage> {
         testId,
         'ทดสอบแจ้งเตือนทันที',
         'นี่คือการแจ้งเตือนทดสอบ',
-        tz.TZDateTime.from(now.add(const Duration(seconds: 2)), tz.local),
+        tz.TZDateTime.from(now.add(const Duration(seconds: 2)), tz.getLocation('Asia/Bangkok')),
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'expire_channel',
@@ -183,7 +183,7 @@ class _NotificationPageState extends State<NotificationPage> {
           daysLeft < 0
               ? '${item['item_name']} หมดอายุแล้ว'
               : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน',
-          tz.TZDateTime.from(notifyDate, tz.local),
+          tz.TZDateTime.from(notifyDate, tz.getLocation('Asia/Bangkok')),
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'expire_channel',
@@ -246,18 +246,7 @@ class _NotificationPageState extends State<NotificationPage> {
             tooltip: 'ทดสอบแจ้งเตือนทันที (show)',
           ),
           const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'add_item',
-            onPressed: () async {
-              final result = await Navigator.pushNamed(context, '/add_item');
-              if (result == true) {
-                _fetch_notifications();
-              }
-            },
-            backgroundColor: const Color(0xFF4A90E2),
-            child: const Icon(Icons.add),
-            tooltip: 'เพิ่มของใหม่',
-          ),
+
         ],
       ),
     );
