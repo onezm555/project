@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
 
-import 'request_otp_page.dart'; 
+import 'request_otp_page.dart';
 import 'register.dart';
 import 'main_layout.dart';
 import 'forgot_password.dart';
@@ -81,12 +81,19 @@ class _LoginPageState extends State<LoginPage> {
           if (responseData['status'] == 'success' &&
               responseData['user_id'] != null) {
             final int userId = responseData['user_id'];
+            final String userName = responseData['name'] ?? 'Guest'; // ดึงชื่อผู้ใช้
+            final String? userImgUrl = responseData['profile_image_url']; // ดึง URL รูปโปรไฟล์
 
             SharedPreferences prefs = await SharedPreferences.getInstance();
             await prefs.setInt('user_id', userId);
-            // บันทึกอีเมลและรหัสผ่าน
             await prefs.setString('saved_email', _email_controller.text);
             await prefs.setString('saved_password', _password_controller.text);
+            await prefs.setString('user_name', userName); // บันทึกชื่อผู้ใช้
+            if (userImgUrl != null) {
+              await prefs.setString('user_img', userImgUrl); // บันทึก URL รูปโปรไฟล์
+            } else {
+              await prefs.remove('user_img'); // ลบถ้าไม่มีรูป
+            }
 
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -147,6 +154,8 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _logout() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_id');
+    await prefs.remove('user_name'); // ลบชื่อผู้ใช้ด้วย
+    await prefs.remove('user_img'); // ลบรูปโปรไฟล์ด้วย
     // ถ้าต้องการลบ email/password ที่บันทึกไว้ด้วย ให้ uncomment ด้านล่าง
     // await prefs.remove('saved_email');
     // await prefs.remove('saved_password');
