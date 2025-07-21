@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'login.dart';
+import 'expired_items.dart';
 
 class MenuPage extends StatelessWidget {
   const MenuPage({Key? key}) : super(key: key);
@@ -12,7 +13,18 @@ class MenuPage extends StatelessWidget {
         children: [
           const SizedBox(height: 8),
           const MenuItem(icon: Icons.person_outline, title: 'โปรไฟล์ผู้ใช้'),
-          const MenuItem(icon: Icons.receipt_long_outlined, title: 'รายการที่หมดอายุ/ใช้หมดแล้ว'),
+          MenuItem(
+            icon: Icons.receipt_long_outlined,
+            title: 'รายการที่หมดอายุ/ใช้หมดแล้ว',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ExpiredItemsPage(),
+                ),
+              );
+            },
+          ),
           const MenuItem(icon: Icons.history, title: 'สถิติ'),
           const MenuItem(icon: Icons.brightness_6_outlined, title: 'ธีมของแอป'),
           const MenuItem(icon: Icons.info_outline, title: 'เกี่ยวกับแอป'),

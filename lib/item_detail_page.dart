@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http; // Import http package
 import 'dart:convert'; // Import for json.decode
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
+import 'add_item.dart'; // เพิ่ม import สำหรับหน้าแก้ไข
 
 class ItemDetailPage extends StatefulWidget {
   final Map<String, dynamic> item_data;
@@ -393,9 +394,21 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                   children: [
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {
-                          // Handle "แก้ไขข้อมูล" (Edit Information) button press
-                          debugPrint('แก้ไขข้อมูล button pressed');
+                        onPressed: () async {
+                          // เปิดหน้า AddItemPage เพื่อแก้ไขข้อมูล
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => AddItemPage(
+                                is_existing_item: true,
+                                item_data: widget.item_data,
+                              ),
+                            ),
+                          );
+                          if (result == true) {
+                            // ถ้าแก้ไขแล้ว กลับหรือ refresh
+                            Navigator.pop(context, true);
+                          }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue, // Blue button

@@ -277,11 +277,25 @@ class _NotificationPageState extends State<NotificationPage> {
                 orElse: () => null,
               );
               if (item != null) {
-                // เปิดหน้ารายละเอียดสินค้า
+                // ส่งข้อมูลครบถ้วนเหมือน index.dart
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => ItemDetailPage(item_data: item),
+                    builder: (context) => ItemDetailPage(
+                      item_data: {
+                        'item_id': item['item_id'],
+                        'user_id': item['user_id'],
+                        'name': item['item_name'],
+                        'quantity': item['item_number'],
+                        'barcode': item['item_barcode'],
+                        'item_notification': item['item_notification'],
+                        'unit': item['date_type'] ?? item['unit'],
+                        'category': item['type_name'] ?? item['category'],
+                        'storage_location': item['area_name'] ?? item['storage_location'],
+                        'item_date': item['item_date'],
+                        'item_img': item['item_img_full_url'],
+                      },
+                    ),
                   ),
                 );
               }

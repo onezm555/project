@@ -10,11 +10,13 @@ import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import �
 class AddItemPage extends StatefulWidget {
   final bool is_existing_item;
   final VoidCallback? on_item_added;
+  final Map<String, dynamic>? item_data; // เพิ่มรับข้อมูล item เดิม
 
   const AddItemPage({
     Key? key,
     this.is_existing_item = false,
     this.on_item_added,
+    this.item_data,
   }) : super(key: key);
 
   @override
@@ -37,7 +39,10 @@ class _AddItemPageState extends State<AddItemPage> {
   bool _is_loading = false;
   List<String> _units = ['วันหมดอายุ(EXP)', 'วันผลิต(MFG)'];
   List<String> _categories = ['เลือกประเภท', 'เพิ่มประเภทสินค้า'];
-  List<String> _storage_locations = ['เลือกพื้นที่จัดเก็บ', 'เพิ่มพื้นที่การเอง'];
+  List<Map<String, dynamic>> _storage_locations = [
+    {'area_id': null, 'area_name': 'เลือกพื้นที่จัดเก็บ'},
+    {'area_id': null, 'area_name': 'เพิ่มพื้นที่การเอง'},
+  ];
   int? _current_user_id; // สำหรับเก็บ user_id
 
   // ใช้ URL จาก .env
@@ -48,7 +53,42 @@ class _AddItemPageState extends State<AddItemPage> {
   void initState() {
     super.initState();
     _initialize_data();
-    _notification_days_controller.text = '7'; // กำหนดค่าเริ่มต้นเป็น 7
+    _notification_days_controller.text = '7';
+    // ถ้าเป็นโหมดแก้ไข ให้เติมข้อมูลจาก item_data
+    if (widget.is_existing_item && widget.item_data != null) {
+      final item = widget.item_data!;
+      _name_controller.text = item['name'] ?? '';
+      _quantity_controller.text = item['quantity']?.toString() ?? '1';
+      _barcode_controller.text = item['barcode'] ?? '';
+      _notification_days_controller.text = (item['item_notification'] != null && item['item_notification'].toString().trim().isNotEmpty)
+          ? item['item_notification'].toString()
+          : '7';
+      _selected_unit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
+      _selected_category = item['category'] ?? 'เลือกประเภท';
+      _selected_storage = item['storage_location'] ?? 'เลือกพื้นที่จัดเก็บ';
+      if (item['item_date'] != null) {
+        try {
+          _selected_date = DateTime.parse(item['item_date']);
+        } catch (e) {
+          _selected_date = DateTime.now().add(const Duration(days: 7));
+        }
+      }
+      // ไม่เติมรูปภาพเดิม (_picked_image) เพราะต้องเลือกใหม่
+    }
+    // ป้องกัน error dropdown: ถ้า value ไม่อยู่ใน list ให้เซ็ตเป็น default
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_categories.contains(_selected_category)) {
+        setState(() {
+          _selected_category = 'เลือกประเภท';
+        });
+      }
+      final storageNames = _storage_locations.map((e) => e['area_name'] as String).toList();
+      if (!storageNames.contains(_selected_storage)) {
+        setState(() {
+          _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+        });
+      }
+    });
   }
 
   Future<void> _initialize_data() async {
@@ -81,8 +121,22 @@ class _AddItemPageState extends State<AddItemPage> {
       final response = await http.get(Uri.parse('$_api_base_url/get_types.php?user_id=$_current_user_id'));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        final loadedCategories = ['เลือกประเภท'] + data.map((e) => e['type_name'] as String).toList() + ['เพิ่มประเภทสินค้า'];
         setState(() {
-          _categories = ['เลือกประเภท'] + data.map((e) => e['type_name'] as String).toList() + ['เพิ่มประเภทสินค้า'];
+          _categories = loadedCategories;
+          // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิม ให้เลือก category ตามข้อมูลเดิม
+          if (widget.is_existing_item && widget.item_data != null) {
+            final itemCat = widget.item_data!['category'] ?? '';
+            if (_categories.contains(itemCat)) {
+              _selected_category = itemCat;
+            } else {
+              _selected_category = 'เลือกประเภท';
+            }
+          } else {
+            if (!_categories.contains(_selected_category)) {
+              _selected_category = 'เลือกประเภท';
+            }
+          }
         });
       } else {
         _show_error_message('Failed to load categories: ${response.statusCode}');
@@ -99,8 +153,31 @@ class _AddItemPageState extends State<AddItemPage> {
       final response = await http.get(Uri.parse('$_api_base_url/get_areas.php?user_id=$_current_user_id'));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        final loadedLocations = [
+          {'area_id': null, 'area_name': 'เลือกพื้นที่จัดเก็บ', 'user_id': null},
+          ...data.map((e) => {
+            'area_id': e['area_id'],
+            'area_name': e['area_name'],
+            'user_id': e['user_id'],
+          }),
+          {'area_id': null, 'area_name': 'เพิ่มพื้นที่การเอง', 'user_id': null},
+        ];
         setState(() {
-          _storage_locations = ['เลือกพื้นที่จัดเก็บ'] + data.map((e) => e['area_name'] as String).toList() + ['เพิ่มพื้นที่การเอง'];
+          _storage_locations = loadedLocations;
+          final storageNames = _storage_locations.map((e) => e['area_name'] as String).toList();
+          // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิม ให้เลือก storage ตามข้อมูลเดิม
+          if (widget.is_existing_item && widget.item_data != null) {
+            final itemStorage = widget.item_data!['storage_location'] ?? '';
+            if (storageNames.contains(itemStorage)) {
+              _selected_storage = itemStorage;
+            } else {
+              _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+            }
+          } else {
+            if (!storageNames.contains(_selected_storage)) {
+              _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+            }
+          }
         });
       } else {
         _show_error_message('Failed to load storage locations: ${response.statusCode}');
@@ -433,10 +510,17 @@ class _AddItemPageState extends State<AddItemPage> {
     });
 
     try {
+      // เลือก API ตามโหมด
+      final apiUrl = widget.is_existing_item ? '$_api_base_url/edit_item.php' : '$_api_base_url/add_item.php';
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$_api_base_url/add_item.php'),
+        Uri.parse(apiUrl),
       );
+
+      // ถ้าแก้ไข ต้องส่ง item_id ด้วย
+      if (widget.is_existing_item && widget.item_data != null) {
+        request.fields['item_id'] = widget.item_data!['item_id'].toString();
+      }
 
       request.fields['name'] = _name_controller.text;
       request.fields['quantity'] = _quantity_controller.text;
@@ -447,11 +531,23 @@ class _AddItemPageState extends State<AddItemPage> {
       request.fields['category'] = _selected_category;
       request.fields['storage_location'] = _selected_storage;
 
+      // หา area_id จากชื่อพื้นที่จัดเก็บที่เลือก
+      int? areaId;
+      for (var loc in _storage_locations) {
+        if (loc['area_name'] == _selected_storage) {
+          areaId = loc['area_id'] != null ? int.tryParse(loc['area_id'].toString()) : null;
+          break;
+        }
+      }
+      if (areaId != null) {
+        request.fields['storage_id'] = areaId.toString();
+      }
 
+      // อัปโหลดรูปภาพ (key แตกต่างกัน)
       if (_picked_image != null) {
         request.files.add(
           await http.MultipartFile.fromPath(
-            'image',
+            widget.is_existing_item ? 'item_img' : 'image',
             _picked_image!.path,
             filename: _picked_image!.name,
           ),
@@ -464,11 +560,11 @@ class _AddItemPageState extends State<AddItemPage> {
         final response_body = await response.stream.bytesToString();
         final response_data = json.decode(response_body);
         if (response_data['status'] == 'success') {
-          _show_success_message('บันทึกข้อมูลสินค้าสำเร็จแล้ว!');
+          _show_success_message(widget.is_existing_item ? 'แก้ไขข้อมูลสินค้าสำเร็จแล้ว!' : 'บันทึกข้อมูลสินค้าสำเร็จแล้ว!');
           if (widget.on_item_added != null) {
             widget.on_item_added!();
           }
-          Navigator.pop(context);
+          Navigator.pop(context, true);
         } else {
           _show_error_message('Error: ${response_data['message']}');
         }
@@ -767,12 +863,13 @@ class _AddItemPageState extends State<AddItemPage> {
                           fillColor: Colors.white,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
-                        items: _storage_locations.map((String item) {
+                        items: _storage_locations.map((loc) {
+                          String item = loc['area_name'];
+                          int? locUserId = loc['user_id'] != null ? int.tryParse(loc['user_id'].toString()) : null;
+                          bool showDeleteIcon = (_current_user_id != null && _current_user_id != 0 && item != 'เลือกพื้นที่จัดเก็บ' && item != 'เพิ่มพื้นที่การเอง' && locUserId != null && locUserId != 0);
                           return DropdownMenuItem<String>(
                             value: item,
-                            child:
-                            // Check if current user ID is not 0, and item is not "Select..." or "Add custom area"
-                            (_current_user_id != null && _current_user_id != 0 && item != 'เลือกพื้นที่จัดเก็บ' && item != 'เพิ่มพื้นที่การเอง')
+                            child: showDeleteIcon
                                 ? Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
