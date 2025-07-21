@@ -17,56 +17,6 @@ class NotificationPage extends StatefulWidget {
 }
 
 class _NotificationPageState extends State<NotificationPage> {
-  // ฟังก์ชันทดสอบแจ้งเตือนแบบ show() ทันที (ไม่ใช้ schedule)
-  Future<void> _testSimpleNotification() async {
-    try {
-      await flutterLocalNotificationsPlugin.show(
-        88888,
-        'ทดสอบแจ้งเตือนทันที (show)',
-        'นี่คือการแจ้งเตือนแบบ show()',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'expire_channel',
-            'แจ้งเตือนสินค้า',
-            channelDescription: 'แจ้งเตือนวันหมดอายุสินค้า',
-            importance: Importance.max,
-            priority: Priority.high,
-          ),
-        ),
-      );
-      debugPrint('[NOTI] TEST: show() notification sent');
-    } catch (e) {
-      debugPrint('[NOTI] TEST: Error show() notification: $e');
-    }
-  }
-  // ฟังก์ชันทดสอบแจ้งเตือนทันที
-  Future<void> _testImmediateNotification() async {
-    final now = DateTime.now();
-    final testId = 99999;
-    debugPrint('[NOTI] TEST: Scheduling immediate notification');
-    try {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        testId,
-        'ทดสอบแจ้งเตือนทันที',
-        'นี่คือการแจ้งเตือนทดสอบ',
-        tz.TZDateTime.from(now.add(const Duration(seconds: 2)), tz.getLocation('Asia/Bangkok')),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'expire_channel',
-            'แจ้งเตือนสินค้า',
-            channelDescription: 'แจ้งเตือนวันหมดอายุสินค้า',
-            importance: Importance.max,
-            priority: Priority.high,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.dateAndTime,
-      );
-      debugPrint('[NOTI] TEST: Immediate notification scheduled');
-    } catch (e) {
-      debugPrint('[NOTI] TEST: Error scheduling immediate notification: $e');
-    }
-  }
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoading = true;
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -222,33 +172,7 @@ class _NotificationPageState extends State<NotificationPage> {
                     ],
                   ),
                 ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            heroTag: 'test_noti',
-            onPressed: () async {
-              await _testImmediateNotification();
-            },
-            backgroundColor: Colors.orange,
-            child: const Icon(Icons.notifications_active),
-            tooltip: 'ทดสอบแจ้งเตือน (schedule)',
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'test_simple',
-            onPressed: () async {
-              await _testSimpleNotification();
-            },
-            backgroundColor: Colors.redAccent,
-            child: const Icon(Icons.notification_important),
-            tooltip: 'ทดสอบแจ้งเตือนทันที (show)',
-          ),
-          const SizedBox(height: 12),
-
-        ],
-      ),
+      // ...ไม่มี floatingActionButton สำหรับทดสอบแจ้งเตือน...
     );
   }
 

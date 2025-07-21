@@ -132,68 +132,84 @@ class IndexPageState extends State<IndexPage> {
       appBar: AppBar(
         backgroundColor: Colors.grey[50],
         elevation: 0,
-        title: const Text(
-          'รายการสินค้า',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: Colors.black,
-          ),
-        ),
+        // ลบ title ออก
+        title: null,
         centerTitle: true,
       ),
-      body: _is_loading
-          ? const Center(child: CircularProgressIndicator())
-          : _is_true_error
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await fetchItemsData(filters: _current_filters);
+        },
+        child: _is_loading
+            ? const Center(child: CircularProgressIndicator())
+            : _is_true_error
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 40),
-                      const SizedBox(height: 10),
-                      Text(
-                        _api_message ?? 'An unknown error occurred.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red, fontSize: 16),
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: () => fetchItemsData(filters: _current_filters), // Retry with current filters
-                        child: const Text('ลองอีกครั้ง'),
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                              const SizedBox(height: 10),
+                              Text(
+                                _api_message ?? 'An unknown error occurred.',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.red, fontSize: 16),
+                              ),
+                              const SizedBox(height: 20),
+                              ElevatedButton(
+                                onPressed: () => fetchItemsData(filters: _current_filters), // Retry with current filters
+                                child: const Text('ลองอีกครั้ง'),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
-                  ),
-                )
-              : _stored_items.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                  )
+                : _stored_items.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
                         children: [
-                          const Icon(Icons.info_outline, color: Colors.grey, size: 40),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'ไม่พบรายการสินค้า',
-                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.5,
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.info_outline, color: Colors.grey, size: 40),
+                                  const SizedBox(height: 10),
+                                  const Text(
+                                    'ไม่พบรายการสินค้า',
+                                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16.0),
-                      itemCount: _stored_items.length,
-                      itemBuilder: (context, index) {
-                        final item = _stored_items[index];
-                        final days_left = _calculate_days_left(item['item_date']);
-                        final status_info = _get_status_info(days_left);
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16.0),
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: _stored_items.length,
+                        itemBuilder: (context, index) {
+                          final item = _stored_items[index];
+                          final days_left = _calculate_days_left(item['item_date']);
+                          final status_info = _get_status_info(days_left);
 
-                        return _build_item_card(
-                          item: item,
-                          days_left: days_left,
-                          status_text: status_info['text'],
-                          status_color: status_info['color'],
-                        );
-                      },
-                    ),
+                          return _build_item_card(
+                            item: item,
+                            days_left: days_left,
+                            status_text: status_info['text'],
+                            status_color: status_info['color'],
+                          );
+                        },
+                      ),
+      ),
     );
   }
 
