@@ -1,21 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // สำหรับโหลด .env
-import 'package:shared_preferences/shared_preferences.dart'; // เพิ่ม SharedPreferences เพื่อบันทึกชื่อใหม่
-
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import dotenv
 import 'package:image_picker/image_picker.dart';
 
 class ProfileEditPage extends StatefulWidget {
   final String userEmail;
   final String userName;
-  // final String? userImgUrl; // ลบออก ไม่ต้องส่ง userImgUrl มาจากหน้าก่อนหน้าแล้ว
 
   const ProfileEditPage({
     Key? key,
     required this.userEmail,
     required this.userName,
-    // this.userImgUrl, // ลบออก
   }) : super(key: key);
 
   @override
@@ -23,379 +20,444 @@ class ProfileEditPage extends StatefulWidget {
 }
 
 class _ProfileEditPageState extends State<ProfileEditPage> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _currentPasswordController = TextEditingController();
-  final TextEditingController _newPasswordController = TextEditingController();
-  final TextEditingController _confirmNewPasswordController = TextEditingController();
-
-  bool _isLoading = false;
-  bool _isPasswordChange = false;
-  
-  String? _displayUserImgFileName; // เก็บแค่ชื่อไฟล์ (ส่วนท้ายของ URL)
-  String? _displayUserImgUrl; // URL ที่ใช้แสดงผล (URL เต็ม)
-
-  // ฟังก์ชันสำหรับสร้าง URL รูปโปรไฟล์
-  String getProfileImageUrl(String? input) {
-    if (input == null || input.isEmpty) {
-      // คืนค่าว่าง หรือ URL รูปภาพ default ที่คุณต้องการ
-      return '';
-    }
-
-    // ถ้า input เป็น URL เต็มอยู่แล้ว (มี http:// หรือ https://) ให้คืนค่าเดิมเลย
-    if (input.startsWith('http://') || input.startsWith('https://')) {
-      print('[DEBUG] getProfileImageUrl: Input is already a full URL: $input');
-      return input;
-    }
-
-    // ถ้า input เป็นแค่ชื่อไฟล์ หรือ path สัมพัทธ์
-    final baseUrl = dotenv.env['PROFILE_IMAGE_BASE_URL'];
-    String finalBaseUrl = 'http://10.10.60.143/project/img/'; // Fallback URL (ควรใช้ .env)
-
-    if (baseUrl != null && baseUrl.isNotEmpty) {
-      finalBaseUrl = baseUrl;
-    } else {
-      print('[DEBUG] PROFILE_IMAGE_BASE_URL is null or empty in .env. Using hardcoded fallback: $finalBaseUrl');
-    }
-
-    // ตรวจสอบให้แน่ใจว่ามี "/" ระหว่าง baseUrl และ input
-    if (!finalBaseUrl.endsWith('/') && !input.startsWith('/')) {
-      return '$finalBaseUrl/$input';
-    } else if (finalBaseUrl.endsWith('/') && input.startsWith('/')) {
-      return '$finalBaseUrl${input.substring(1)}'; // ตัด '/' ซ้ำออก
-    } else {
-      return '$finalBaseUrl$input';
-    }
+  final ImagePicker _picker = ImagePicker();
+Future<void> _pickAndUploadImage() async {
+  print('เริ่มเลือกและอัปโหลดรูปภาพ');
+  final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+  if (image == null) {
+    print('ไม่ได้เลือกรูปภาพ');
+    return;
   }
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  final int? userIdInt = prefs.getInt('user_id');
+  print('userIdInt: $userIdInt');
+  String? userId;
+  if (userIdInt != null) {
+    userId = userIdInt.toString();
+  }
+  print('userId: $userId');
+  if (userId == null || userId.isEmpty) {
+    _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
+    print('ไม่พบ user_id ใน SharedPreferences');
+    return;
+  }
+
+  final url = Uri.parse('${_apiBaseUrl}upload_profile_image.php');
+  try {
+    var request = http.MultipartRequest('POST', url);
+    request.fields['user_id'] = userId;
+    request.files.add(await http.MultipartFile.fromPath('profile_image', image.path));
+    print('ส่ง request ไปยัง $url');
+    var response = await request.send();
+    print('response.statusCode: ${response.statusCode}');
+    if (response.statusCode == 200) {
+      final respStr = await response.stream.bytesToString();
+      print('response body: $respStr');
+      final respData = json.decode(respStr);
+      if (respData['status'] == 'success') {
+        setState(() {
+          _userImgUrl = respData['user_img_full_url'];
+        });
+        await prefs.setString('user_img', respData['user_img_full_url'] ?? '');
+        _showSnackBar('อัปโหลดรูปโปรไฟล์สำเร็จ', Colors.green);
+      } else {
+        _showSnackBar(respData['message'] ?? 'อัปโหลดรูปไม่สำเร็จ', Colors.red);
+      }
+    } else {
+      _showSnackBar('เกิดข้อผิดพลาดในการอัปโหลดรูป (${response.statusCode})', Colors.red);
+    }
+  } catch (e) {
+    _showSnackBar('เกิดข้อผิดพลาด: $e', Colors.red);
+    print('เกิดข้อผิดพลาด: $e');
+  }
+}
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _oldPasswordController = TextEditingController();
+  final TextEditingController _newPasswordController = TextEditingController();
+  final TextEditingController _confirmNewPasswordController =
+      TextEditingController();
+
+  String _currentUserName = '';
+  String? _userImgUrl;
+  bool _isLoading = true; // To show loading state for profile image/name
+  // ดึงค่า API_BASE_URL จาก .env หากไม่พบให้ใช้ค่า fallback
+  final String _apiBaseUrl =
+      dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
 
   @override
   void initState() {
     super.initState();
+    _currentUserName = widget.userName;
     _nameController.text = widget.userName;
-    _loadProfileImage(); // เรียกฟังก์ชันใหม่เพื่อโหลดรูปภาพจาก SharedPreferences
+    _fetchUserData(); // เรียกฟังก์ชันดึงข้อมูลผู้ใช้เมื่อ Widget ถูกสร้าง
   }
 
-  // ฟังก์ชันสำหรับโหลดรูปโปรไฟล์จาก SharedPreferences
-  Future<void> _loadProfileImage() async {
+  Future<void> _fetchUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    // ดึงค่า 'user_img' ซึ่งตอนนี้เราคาดว่ามันคือชื่อไฟล์รูปภาพ
-    final String? userImgFileName = prefs.getString('user_img'); 
-    print('[DEBUG] _loadProfileImage: loaded user_img from prefs: $userImgFileName');
 
-    if (userImgFileName != null && userImgFileName.isNotEmpty) {
-      setState(() {
-        _displayUserImgFileName = userImgFileName;
-        // ใช้ getProfileImageUrl เพื่อสร้าง URL เต็มจากชื่อไฟล์
-        _displayUserImgUrl = getProfileImageUrl(userImgFileName); 
-        print('[DEBUG] _loadProfileImage: _displayUserImgUrl = $_displayUserImgUrl');
-      });
-    } else {
-      setState(() {
-        _displayUserImgFileName = null;
-        _displayUserImgUrl = null; // หรือตั้งค่าเป็น URL รูป Default ของคุณ
-        print('[DEBUG] _loadProfileImage: user_img from prefs is null or empty. Using default/no image.');
-      });
+    // *** การแก้ไขสำหรับวิธีที่ 2: ดึง user_id เป็น int แล้วแปลงเป็น String ***
+    final int? userIdInt = prefs.getInt('user_id'); // พยายามดึงเป็น int
+    String? userId;
+    if (userIdInt != null) {
+      userId = userIdInt.toString(); // ถ้าดึงได้ ให้แปลงเป็น String
     }
-  }
+    // *******************************************************************
 
-  // ฟังก์ชันสำหรับเลือกและอัปโหลดรูปภาพ
-  Future<void> _pickAndUploadImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-
-    if (pickedFile == null) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final apiUrl = dotenv.env['API_URL_UPLOAD_PROFILE_IMAGE'];
-      if (apiUrl == null || apiUrl.isEmpty) {
-        _showSnackBar('API URL สำหรับอัปโหลดรูปโปรไฟล์ไม่ถูกต้อง', Colors.red);
-        setState(() { _isLoading = false; });
-        return;
-      }
-
-      var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
-      request.fields['email'] = widget.userEmail;
-      request.files.add(await http.MultipartFile.fromPath(
-        'profile_image', // ต้องตรงกับชื่อใน $_FILES ใน PHP
-        pickedFile.path,
-      ));
-
-      var response = await request.send();
-      var responseBody = await response.stream.bytesToString();
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(responseBody);
-        if (responseData['success']) {
-          // API คืน URL เต็มมาให้แล้ว (image_url คือ URL เต็ม)
-          final String? newFullImageUrl = responseData['image_url'] as String?;
-          print('[DEBUG] upload success: fullImageUrl=$newFullImageUrl');
-
-          if (newFullImageUrl != null) {
-            final String fileName = Uri.parse(newFullImageUrl).pathSegments.last; // แยกเอาแค่ชื่อไฟล์
-
-            setState(() {
-              _displayUserImgFileName = fileName; // เก็บแค่ชื่อไฟล์
-              _displayUserImgUrl = newFullImageUrl; // ใช้ URL เต็มที่ได้มาในการแสดงผล
-            });
-            // บันทึกแค่ชื่อไฟล์ลง SharedPreferences ด้วยคีย์ 'user_img'
-            SharedPreferences prefs = await SharedPreferences.getInstance();
-            await prefs.setString('user_img', fileName);
-            // ถ้าคุณยังต้องการเก็บ URL เต็มไว้ด้วย (ไม่จำเป็นถ้าใช้ getProfileImageUrl)
-            // await prefs.setString('user_img_url', newFullImageUrl); 
-            print('[DEBUG] set user_img in prefs: $fileName');
-          }
-          _showSnackBar(responseData['message'] ?? 'อัปโหลดรูปโปรไฟล์สำเร็จ', Colors.green);
-        } else {
-          _showSnackBar(responseData['message'] ?? 'เกิดข้อผิดพลาดในการอัปโหลดรูปโปรไฟล์', Colors.red);
-        }
-      } else {
-        _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์: ${response.statusCode}', Colors.red);
-        print('[DEBUG] upload_profile_image error status: ${response.statusCode}');
-        print('[DEBUG] upload_profile_image response: $responseBody');
-      }
-    } catch (e) {
-      _showSnackBar('เกิดข้อผิดพลาดในการอัปโหลด: $e', Colors.red);
-      print('[DEBUG] upload_profile_image catch error: $e');
-    } finally {
+    if (userId == null || userId.isEmpty) {
+      // ตรวจสอบว่า userId มีค่าหรือไม่
+      print('User ID not found in SharedPreferences or is empty.');
       setState(() {
-        _isLoading = false;
+        _isLoading = false; // หยุดโหลดแม้ไม่มี userId
       });
-    }
-  }
-
-  // ฟังก์ชันสำหรับอัปเดตข้อมูลโปรไฟล์ (ชื่อและ/หรือรหัสผ่าน)
-  Future<void> _updateProfile() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    // ตรวจสอบเงื่อนไขการเปลี่ยนรหัสผ่าน
-    if (_isPasswordChange) {
-      if (_currentPasswordController.text.isEmpty ||
-          _newPasswordController.text.isEmpty ||
-          _confirmNewPasswordController.text.isEmpty) {
-        _showSnackBar('กรุณากรอกรหัสผ่านปัจจุบัน รหัสผ่านใหม่ และยืนยันรหัสผ่านใหม่', Colors.orange);
-        setState(() { _isLoading = false; });
-        return;
-      }
-      if (_newPasswordController.text != _confirmNewPasswordController.text) {
-        _showSnackBar('รหัสผ่านใหม่และการยืนยันไม่ตรงกัน', Colors.orange);
-        setState(() { _isLoading = false; });
-        return;
-      }
-    }
-
-    final apiUrl = dotenv.env['API_URL_UPDATE_PROFILE'];
-    if (apiUrl == null || apiUrl.isEmpty) {
-      _showSnackBar('API URL สำหรับอัปเดตโปรไฟล์ไม่ถูกต้อง', Colors.red);
-      setState(() { _isLoading = false; });
       return;
     }
 
-    Map<String, dynamic> data = {
-      'email': widget.userEmail,
-      'name': _nameController.text,
-    };
-
-    if (_isPasswordChange) {
-      data['current_password'] = _currentPasswordController.text;
-      data['new_password'] = _newPasswordController.text;
-    }
+    final url = Uri.parse(
+      '${_apiBaseUrl}get_user_data.php',
+    ); // URL ของ API ดึงข้อมูลผู้ใช้
 
     try {
       final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(data),
+        url,
+        body: {
+          'user_id': userId, // ใช้ userId ที่เป็น String
+        },
       );
 
-      final responseData = jsonDecode(response.body);
-      print('[DEBUG] Update Profile Response Status: ${response.statusCode}');
-      print('[DEBUG] Update Profile Response Body: $responseData');
-
-      if (response.statusCode == 200 && responseData['success']) {
-        _showSnackBar(responseData['message'] ?? 'ข้อมูลโปรไฟล์อัปเดตสำเร็จ', Colors.green);
-        // อัปเดตชื่อผู้ใช้ใน SharedPreferences หลังจากอัปเดตสำเร็จ
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        await prefs.setString('user_name', _nameController.text);
-        print('[DEBUG] set user_name in prefs: ${_nameController.text}');
-
-        // ล้างฟิลด์รหัสผ่านหลังจากอัปเดตสำเร็จ
-        _currentPasswordController.clear();
-        _newPasswordController.clear();
-        _confirmNewPasswordController.clear();
-        setState(() {
-          _isPasswordChange = false; // รีเซ็ตสถานะการเปลี่ยนรหัสผ่าน
-        });
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        if (responseData['status'] == 'success') {
+          final userData = responseData['user'];
+          setState(() {
+            _currentUserName = userData['name'] ?? 'ไม่ระบุชื่อ';
+            _nameController.text =
+                _currentUserName; // อัปเดต Controller ด้วยชื่อล่าสุด
+            _userImgUrl = userData['user_img_full_url']; // ใช้ full URL
+            _isLoading = false;
+          });
+          // อัปเดต SharedPreferences ด้วยข้อมูลใหม่ที่ได้มา
+          await prefs.setString('user_name', userData['name'] ?? '');
+          if (userData['user_img_full_url'] != null) {
+            await prefs.setString('user_img', userData['user_img_full_url']);
+          } else {
+            await prefs.remove('user_img'); // ถ้าไม่มีรูป ก็ลบออกจาก prefs
+          }
+        } else {
+          print('Failed to fetch user data: ${responseData['message']}');
+          setState(() {
+            _isLoading = false;
+          });
+        }
       } else {
-        _showSnackBar(responseData['message'] ?? 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล', Colors.red);
+        print('Server error: ${response.statusCode}');
+        setState(() {
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
-      print('[DEBUG] Update Profile catch error: $e');
-    } finally {
+      print('Error connecting to API: $e');
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  // ฟังก์ชันสำหรับแสดง SnackBar
+  Future<void> _updateProfile() async {
+    final newName = _nameController.text.trim();
+    if (newName.isEmpty) {
+      _showSnackBar('ชื่อผู้ใช้ไม่สามารถเว้นว่างได้', Colors.red);
+      return;
+    }
+
+    if (newName == _currentUserName) {
+      _showSnackBar('ไม่มีการเปลี่ยนแปลงชื่อผู้ใช้', Colors.orange);
+      return;
+    }
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    // *** การแก้ไขสำหรับวิธีที่ 2: ดึง user_id เป็น int แล้วแปลงเป็น String ***
+    final int? userIdInt = prefs.getInt('user_id');
+    String? userId;
+    if (userIdInt != null) {
+      userId = userIdInt.toString();
+    }
+    // *******************************************************************
+
+    if (userId == null || userId.isEmpty) {
+      _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
+      return;
+    }
+
+    final url = Uri.parse('${_apiBaseUrl}update_profile.php');
+    try {
+      final response = await http.post(
+        url,
+        body: {
+          'user_id': userId, // ใช้ userId ที่เป็น String
+          'user_name': newName,
+        },
+      );
+
+      final responseData = json.decode(response.body);
+      if (responseData['status'] == 'success') {
+        await prefs.setString('user_name', newName);
+        setState(() {
+          _currentUserName = newName;
+        });
+        _showSnackBar('อัปเดตโปรไฟล์สำเร็จ', Colors.green);
+        Navigator.pop(context, true);
+      } else {
+        _showSnackBar(
+          responseData['message'] ?? 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์',
+          Colors.red,
+        );
+      }
+    } catch (e) {
+      _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
+    }
+  }
+
+  Future<void> _changePassword() async {
+    final oldPassword = _oldPasswordController.text;
+    final newPassword = _newPasswordController.text;
+    final confirmNewPassword = _confirmNewPasswordController.text;
+
+    if (oldPassword.isEmpty ||
+        newPassword.isEmpty ||
+        confirmNewPassword.isEmpty) {
+      _showSnackBar('กรุณากรอกข้อมูลรหัสผ่านให้ครบถ้วน', Colors.red);
+      return;
+    }
+
+    if (newPassword != confirmNewPassword) {
+      _showSnackBar('รหัสผ่านใหม่ไม่ตรงกัน', Colors.red);
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      _showSnackBar('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร', Colors.red);
+      return;
+    }
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    // *** การแก้ไขสำหรับวิธีที่ 2: ดึง user_id เป็น int แล้วแปลงเป็น String ***
+    final int? userIdInt = prefs.getInt('user_id');
+    String? userId;
+    if (userIdInt != null) {
+      userId = userIdInt.toString();
+    }
+    // *******************************************************************
+
+    if (userId == null || userId.isEmpty) {
+      _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
+      return;
+    }
+
+    final url = Uri.parse('${_apiBaseUrl}change_password.php');
+    try {
+      final response = await http.post(
+        url,
+        body: {
+          'user_id': userId, // ใช้ userId ที่เป็น String
+          'old_password': oldPassword,
+          'new_password': newPassword,
+        },
+      );
+
+      final responseData = json.decode(response.body);
+      if (responseData['status'] == 'success') {
+        _showSnackBar('เปลี่ยนรหัสผ่านสำเร็จ', Colors.green);
+        _oldPasswordController.clear();
+        _newPasswordController.clear();
+        _confirmNewPasswordController.clear();
+      } else {
+        _showSnackBar(
+          responseData['message'] ?? 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน',
+          Colors.red,
+        );
+      }
+    } catch (e) {
+      _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
+    }
+  }
+
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: color,
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _oldPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmNewPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text(
-          'แก้ไขโปรไฟล์',
-          style: TextStyle(color: Colors.white),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87),
+          onPressed: () {
+            Navigator.pop(context, false);
+          },
         ),
-        backgroundColor: Colors.blue.shade700,
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text(
+          'โปรไฟล์ผู้ใช้',
+          style: TextStyle(color: Colors.black87),
+        ),
+        centerTitle: true,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: _pickAndUploadImage, // เรียกฟังก์ชันอัปโหลดเมื่อแตะรูป
-              child: Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 60,
-                    backgroundColor: Colors.grey.shade200,
-                    backgroundImage: _displayUserImgUrl != null && _displayUserImgUrl!.isNotEmpty
-                        ? NetworkImage(_displayUserImgUrl!) // ใช้ URL ที่สร้างขึ้น
-                        : null,
-                    child: _displayUserImgUrl == null || _displayUserImgUrl!.isEmpty
-                        ? Icon(
-                            Icons.person,
-                            size: 60,
-                            color: Colors.grey.shade700,
-                          )
-                        : null,
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: CircleAvatar(
-                      backgroundColor: Colors.blue.shade700,
-                      radius: 20,
-                      child: const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 20,
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _isLoading
+                  ? const CircularProgressIndicator() // แสดง Indicator ขณะโหลด
+                  : GestureDetector(
+                      onTap: _pickAndUploadImage,
+                      child: CircleAvatar(
+                        radius: 60,
+                        backgroundColor: Colors.grey[300],
+                        backgroundImage:
+                            (_userImgUrl != null && _userImgUrl!.isNotEmpty)
+                            ? NetworkImage(_userImgUrl!)
+                            : null,
+                        child: (_userImgUrl == null || _userImgUrl!.isEmpty)
+                            ? Icon(
+                                Icons.person,
+                                size: 80,
+                                color: Colors.grey[600],
+                              )
+                            : null,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                labelText: 'ชื่อผู้ใช้',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+              const SizedBox(height: 15),
+              SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.max,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      _currentUserName,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(width: 5),
+                    IconButton(
+                      icon: const Icon(Icons.edit, color: Colors.black54),
+                      onPressed: () {
+                        _nameController.text = _currentUserName;
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('แก้ไขชื่อผู้ใช้'),
+                            content: TextField(
+                              controller: _nameController,
+                              decoration: const InputDecoration(
+                                labelText: 'ชื่อผู้ใช้',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('ยกเลิก'),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _updateProfile();
+                                },
+                                child: const Text('บันทึก'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Checkbox(
-                  value: _isPasswordChange,
-                  onChanged: (bool? value) {
-                    setState(() {
-                      _isPasswordChange = value ?? false;
-                      if (!_isPasswordChange) {
-                        _currentPasswordController.clear();
-                        _newPasswordController.clear();
-                        _confirmNewPasswordController.clear();
-                      }
-                    });
-                  },
+              const SizedBox(height: 40),
+              const Text(
+                'เปลี่ยนรหัสผ่าน',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
                 ),
-                const Text('เปลี่ยนรหัสผ่าน'),
-              ],
-            ),
-            if (_isPasswordChange) ...[
-              const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 20),
               TextField(
-                controller: _currentPasswordController,
+                controller: _oldPasswordController,
                 obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'รหัสผ่านปัจจุบัน',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                decoration: const InputDecoration(
+                  labelText: 'รหัสผ่านเดิม',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_outline),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 15),
               TextField(
                 controller: _newPasswordController,
                 obscureText: true,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'รหัสผ่านใหม่',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_open),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 15),
               TextField(
                 controller: _confirmNewPasswordController,
                 obscureText: true,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'ยืนยันรหัสผ่านใหม่',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                ),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _changePassword,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'เปลี่ยนรหัสผ่าน',
+                    style: TextStyle(fontSize: 18, color: Colors.white),
                   ),
                 ),
               ),
             ],
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                onPressed: _isLoading ? null : _updateProfile,
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text(
-                        'บันทึกการเปลี่ยนแปลง',
-                        style: TextStyle(fontSize: 16, color: Colors.white),
-                      ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
