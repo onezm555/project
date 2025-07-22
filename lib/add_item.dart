@@ -508,7 +508,6 @@ class _AddItemPageState extends State<AddItemPage> {
     setState(() {
       _is_loading = true;
     });
-
     try {
       // เลือก API ตามโหมด
       final apiUrl = widget.is_existing_item ? '$_api_base_url/edit_item.php' : '$_api_base_url/add_item.php';
@@ -535,7 +534,7 @@ class _AddItemPageState extends State<AddItemPage> {
       int? areaId;
       for (var loc in _storage_locations) {
         if (loc['area_name'] == _selected_storage) {
-          areaId = loc['area_id'] != null ? int.tryParse(loc['area_id'].toString()) : null;
+          areaId = loc['area_id'] is int ? loc['area_id'] : int.tryParse(loc['area_id'].toString());
           break;
         }
       }
@@ -546,11 +545,7 @@ class _AddItemPageState extends State<AddItemPage> {
       // อัปโหลดรูปภาพ (key แตกต่างกัน)
       if (_picked_image != null) {
         request.files.add(
-          await http.MultipartFile.fromPath(
-            widget.is_existing_item ? 'item_img' : 'image',
-            _picked_image!.path,
-            filename: _picked_image!.name,
-          ),
+          await http.MultipartFile.fromPath('image', _picked_image!.path),
         );
       }
 
@@ -572,8 +567,7 @@ class _AddItemPageState extends State<AddItemPage> {
         final error_body = await response.stream.bytesToString();
         _show_error_message('Server error: ${response.statusCode} - $error_body');
       }
-    } catch (e) {
-      _show_error_message('เกิดข้อผิดพลาดในการบันทึกข้อมูล: $e');
+    // Remove duplicate/invalid code after finally
     } finally {
       setState(() {
         _is_loading = false;
@@ -625,7 +619,24 @@ class _AddItemPageState extends State<AddItemPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _build_section_title('สินค้า'),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _build_section_title('สินค้า'),
+                          IconButton(
+                            icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFF4A90E2)),
+                            tooltip: 'แสกนรูปภาพเพื่อดึงข้อความ',
+                            onPressed: () async {
+                              final result = await Navigator.pushNamed(context, '/img_to_txt');
+                              if (result != null && result is String && result.isNotEmpty) {
+                                setState(() {
+                                  _name_controller.text = result;
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
                       _build_text_field(
                         controller: _name_controller,
@@ -1060,7 +1071,16 @@ class _AddItemPageState extends State<AddItemPage> {
         suffixIcon: suffix_icon != null
             ? IconButton(
                 icon: Icon(suffix_icon, color: Colors.grey),
-                onPressed: on_suffix_pressed,
+                onPressed: () async {
+                  if (suffix_icon == Icons.qr_code_scanner) {
+                    final result = await Navigator.pushNamed(context, '/barcode_scanner');
+                    if (result != null && result is String && result.isNotEmpty) {
+                      controller.text = result;
+                    }
+                  } else if (on_suffix_pressed != null) {
+                    on_suffix_pressed();
+                  }
+                },
               )
             : null,
       ),

@@ -56,10 +56,12 @@ Future<void> _pickAndUploadImage() async {
       print('response body: $respStr');
       final respData = json.decode(respStr);
       if (respData['status'] == 'success') {
+        // เพิ่ม query string timestamp เพื่อป้องกัน cache
+        final String newImgUrl = '${respData['user_img_full_url']}?t=${DateTime.now().millisecondsSinceEpoch}';
         setState(() {
-          _userImgUrl = respData['user_img_full_url'];
+          _userImgUrl = newImgUrl;
         });
-        await prefs.setString('user_img', respData['user_img_full_url'] ?? '');
+        await prefs.setString('user_img', newImgUrl);
         _showSnackBar('อัปโหลดรูปโปรไฟล์สำเร็จ', Colors.green);
       } else {
         _showSnackBar(respData['message'] ?? 'อัปโหลดรูปไม่สำเร็จ', Colors.red);
@@ -165,42 +167,47 @@ Future<void> _pickAndUploadImage() async {
 
   Future<void> _updateProfile() async {
     final newName = _nameController.text.trim();
+    print('[DEBUG] _updateProfile: newName = $newName');
     if (newName.isEmpty) {
       _showSnackBar('ชื่อผู้ใช้ไม่สามารถเว้นว่างได้', Colors.red);
+      print('[DEBUG] _updateProfile: ชื่อผู้ใช้ว่าง');
       return;
     }
 
     if (newName == _currentUserName) {
       _showSnackBar('ไม่มีการเปลี่ยนแปลงชื่อผู้ใช้', Colors.orange);
+      print('[DEBUG] _updateProfile: ไม่มีการเปลี่ยนแปลงชื่อ');
       return;
     }
 
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    // *** การแก้ไขสำหรับวิธีที่ 2: ดึง user_id เป็น int แล้วแปลงเป็น String ***
     final int? userIdInt = prefs.getInt('user_id');
     String? userId;
     if (userIdInt != null) {
       userId = userIdInt.toString();
     }
-    // *******************************************************************
 
+    print('[DEBUG] _updateProfile: userId = $userId');
     if (userId == null || userId.isEmpty) {
       _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
+      print('[DEBUG] _updateProfile: ไม่พบ user_id');
       return;
     }
 
     final url = Uri.parse('${_apiBaseUrl}update_profile.php');
+    print('[DEBUG] _updateProfile: url = $url');
     try {
       final response = await http.post(
         url,
         body: {
-          'user_id': userId, // ใช้ userId ที่เป็น String
+          'user_id': userId,
           'user_name': newName,
         },
       );
-
+      print('[DEBUG] _updateProfile: response.statusCode = \\${response.statusCode}');
+      print('[DEBUG] _updateProfile: response.body = \\${response.body}');
       final responseData = json.decode(response.body);
-      if (responseData['status'] == 'success') {
+      if (responseData['success'] == true || responseData['status'] == 'success') {
         await prefs.setString('user_name', newName);
         setState(() {
           _currentUserName = newName;
@@ -212,9 +219,11 @@ Future<void> _pickAndUploadImage() async {
           responseData['message'] ?? 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์',
           Colors.red,
         );
+        print('[DEBUG] _updateProfile: error = \\${responseData['message']}');
       }
     } catch (e) {
       _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
+      print('[DEBUG] _updateProfile: exception = $e');
     }
   }
 
@@ -222,50 +231,56 @@ Future<void> _pickAndUploadImage() async {
     final oldPassword = _oldPasswordController.text;
     final newPassword = _newPasswordController.text;
     final confirmNewPassword = _confirmNewPasswordController.text;
+    print('[DEBUG] _changePassword: oldPassword = $oldPassword, newPassword = $newPassword, confirmNewPassword = $confirmNewPassword');
 
     if (oldPassword.isEmpty ||
         newPassword.isEmpty ||
         confirmNewPassword.isEmpty) {
       _showSnackBar('กรุณากรอกข้อมูลรหัสผ่านให้ครบถ้วน', Colors.red);
+      print('[DEBUG] _changePassword: มีช่องว่าง');
       return;
     }
 
     if (newPassword != confirmNewPassword) {
       _showSnackBar('รหัสผ่านใหม่ไม่ตรงกัน', Colors.red);
+      print('[DEBUG] _changePassword: รหัสผ่านใหม่ไม่ตรงกัน');
       return;
     }
 
     if (newPassword.length < 6) {
       _showSnackBar('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร', Colors.red);
+      print('[DEBUG] _changePassword: รหัสผ่านใหม่สั้น');
       return;
     }
 
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    // *** การแก้ไขสำหรับวิธีที่ 2: ดึง user_id เป็น int แล้วแปลงเป็น String ***
     final int? userIdInt = prefs.getInt('user_id');
     String? userId;
     if (userIdInt != null) {
       userId = userIdInt.toString();
     }
-    // *******************************************************************
-
+    print('[DEBUG] _changePassword: userId = $userId');
     if (userId == null || userId.isEmpty) {
       _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
+      print('[DEBUG] _changePassword: ไม่พบ user_id');
       return;
     }
 
-    final url = Uri.parse('${_apiBaseUrl}change_password.php');
+    final url = Uri.parse('${_apiBaseUrl}upload_profile_image.php');
+    print('[DEBUG] _changePassword: url = $url');
     try {
-      final response = await http.post(
-        url,
-        body: {
-          'user_id': userId, // ใช้ userId ที่เป็น String
-          'old_password': oldPassword,
-          'new_password': newPassword,
-        },
-      );
+      var request = http.MultipartRequest('POST', url);
+      request.fields['user_id'] = userId;
+      request.fields['old_password'] = oldPassword;
+      request.fields['password'] = newPassword;
+      // ไม่ต้องแนบไฟล์ profile_image ถ้าไม่เปลี่ยนรูป
 
-      final responseData = json.decode(response.body);
+      print('[DEBUG] _changePassword: sending fields = ' + request.fields.toString());
+      var streamedResponse = await request.send();
+      print('[DEBUG] _changePassword: response.statusCode = ${streamedResponse.statusCode}');
+      final respStr = await streamedResponse.stream.bytesToString();
+      print('[DEBUG] _changePassword: response.body = $respStr');
+      final responseData = json.decode(respStr);
       if (responseData['status'] == 'success') {
         _showSnackBar('เปลี่ยนรหัสผ่านสำเร็จ', Colors.green);
         _oldPasswordController.clear();
@@ -276,9 +291,11 @@ Future<void> _pickAndUploadImage() async {
           responseData['message'] ?? 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน',
           Colors.red,
         );
+        print('[DEBUG] _changePassword: error = ${responseData['message']}');
       }
     } catch (e) {
       _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
+      print('[DEBUG] _changePassword: exception = $e');
     }
   }
 

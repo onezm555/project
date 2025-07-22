@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // <--- (1) เพิ่ม import นี้
 import 'item_detail_page.dart'; // ตรวจสอบให้แน่ใจว่า path ถูกต้อง
+import 'add_item.dart';
 
 // URL พื้นฐานของ API ของคุณ (บรรทัดนี้ถูกลบแล้ว)
 // const String _api_base_url = 'http://10.192.168.1.176/project'; // <--- (2) บรรทัดนี้ถูกลบออกไป
@@ -57,7 +58,10 @@ class _CalendarPageState extends State<CalendarPage> {
     });
 
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    final int? userId = prefs.getInt('user_id');
+    final int? userId = prefs.getInt('user_id'); // userId ถูกประกาศที่นี่
+
+    // *** ย้าย debugPrint มาไว้ตรงนี้ ***
+    debugPrint('Fetched User ID: $userId');
 
     if (userId == null) {
       setState(() {
@@ -186,21 +190,26 @@ class _CalendarPageState extends State<CalendarPage> {
                   if (!_show_only_expiry_months)
                     _build_year_selector(), // เลือกปีถ้าไม่ได้กรอง
                   const SizedBox(height: 16),
-                  ...List.generate(12, (index) {
-                    int month = index + 1;
-                    // แก้ไขเงื่อนไขการซ่อน/แสดงเดือน
-                    if (_show_only_expiry_months) {
-                      // โหมดกรอง: ซ่อนเดือนที่ไม่มีหมดอายุเลย
-                      if (!_has_any_expiry_in_month(month)) {
-                        return const SizedBox.shrink();
-                      }
-                    }
-                    // โหมดปกติ: แสดงครบ 12 เดือนเสมอ ไม่ว่าจะไม่มีสินค้าหมดอายุในปีนั้นหรือไม่
-                    return _build_month_calendar(month);
-                  }),
+
+                  ...(_show_only_expiry_months
+                      ? _getSortedMonthsForFilter().map((pair) => _build_month_calendar(pair['month'] as int, year: pair['year'] as int)).toList()
+                      : List.generate(12, (index) => _build_month_calendar(index + 1))),
                 ],
               ),
             ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          // นำทางไปยัง AddItemPage และรอผลลัพธ์
+          final bool? dataChanged = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AddItemPage()),
+          );
+          if (dataChanged == true) {
+            _fetch_expiry_data();
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
     );
   }
 
@@ -293,21 +302,30 @@ class _CalendarPageState extends State<CalendarPage> {
     return false;
   }
 
-  // ไม่ได้ใช้แล้ว แต่เก็บไว้เผื่ออนาคต
-  // bool _has_expiry_in_month_and_year(int month, int year) {
-  //   for (var date_string in _all_expiry_items_by_date.keys) {
-  //     DateTime date = DateTime.parse(date_string);
-  //     if (date.year == year && date.month == month) {
-  //       return true;
-  //     }
-  //   }
-  //   return false;
-  // }
+  /// คืนค่า List ของ Map {'month': int, 'year': int} เรียงจากปีน้อยไปมาก เดือนน้อยไปมาก เฉพาะเดือนที่มีของหมดอายุ (ใช้ในโหมดกรอง)
+  List<Map<String, int>> _getSortedMonthsForFilter() {
+    final Set<String> monthYearSet = {};
+    for (final dateString in _all_expiry_items_by_date.keys) {
+      final date = DateTime.parse(dateString);
+      monthYearSet.add('${date.year}-${date.month}');
+    }
+    final List<Map<String, int>> result = monthYearSet
+        .map((s) {
+          final parts = s.split('-');
+          return {'year': int.parse(parts[0]), 'month': int.parse(parts[1])};
+        })
+        .toList();
+    result.sort((a, b) {
+      if (a['year'] != b['year']) {
+        return a['year']!.compareTo(b['year']!);
+      }
+      return a['month']!.compareTo(b['month']!);
+    });
+    return result;
+  }
 
-  Widget _build_month_calendar(int month) {
-    int display_year = _show_only_expiry_months
-        ? DateTime.now().year
-        : _selected_year;
+  Widget _build_month_calendar(int month, {int? year}) {
+    int display_year = year ?? (_show_only_expiry_months ? DateTime.now().year : _selected_year);
 
     int days_in_month = DateTime(display_year, month + 1, 0).day;
     DateTime first_day_of_month = DateTime(display_year, month, 1);
@@ -315,24 +333,11 @@ class _CalendarPageState extends State<CalendarPage> {
 
     int offset = (start_day_of_week == 7) ? 0 : start_day_of_week;
 
-    // หาปีที่เกี่ยวข้องกับเดือนนี้ เมื่ออยู่ในโหมดรวมทุกปี
-    Set<int> years_in_this_month = {};
-    if (_show_only_expiry_months) {
-      for (var date_string in _all_expiry_items_by_date.keys) {
-        DateTime stored_date = DateTime.parse(date_string);
-        if (stored_date.month == month) {
-          years_in_this_month.add(stored_date.year + 543);
-        }
-      }
-    }
-
     String month_title = _month_names[month - 1];
-    if (_show_only_expiry_months && years_in_this_month.isNotEmpty) {
-      // เรียงปีจากน้อยไปมาก
-      List<int> sorted_years = years_in_this_month.toList()..sort();
-      month_title += ' ${sorted_years.join(', ')}'; // แสดงปีต่อท้ายเดือน
+    if (_show_only_expiry_months && year != null) {
+      month_title += ' ${year + 543}';
     } else if (!_show_only_expiry_months) {
-      month_title += ' ${_selected_year + 543}'; // แสดงปีที่เลือกในโหมดปกติ
+      month_title += ' ${_selected_year + 543}';
     }
 
     return Container(
@@ -384,16 +389,16 @@ class _CalendarPageState extends State<CalendarPage> {
               // ไม่ต้องเก็บ expiry_years_on_this_day สำหรับแสดงบนตัวเลขวันแล้ว
               // Set<int> expiry_years_on_this_day = {};
 
+
               for (var entry in _all_expiry_items_by_date.entries) {
                 DateTime stored_date = DateTime.parse(entry.key);
                 if (stored_date.month == month && stored_date.day == day) {
-                  if (!_show_only_expiry_months &&
-                      stored_date.year != _selected_year) {
-                    continue;
+                  if (_show_only_expiry_months) {
+                    if (year != null && stored_date.year != year) continue;
+                  } else {
+                    if (stored_date.year != _selected_year) continue;
                   }
                   items_on_this_day_across_all_years.addAll(entry.value);
-                  // ไม่ต้องเพิ่มปี พ.ศ. ลงใน Set นี้แล้ว
-                  // expiry_years_on_this_day.add(stored_date.year + 543);
                 }
               }
 
