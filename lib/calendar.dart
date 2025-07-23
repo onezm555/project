@@ -477,11 +477,15 @@ class _CalendarPageState extends State<CalendarPage> {
       return dateA.compareTo(dateB);
     });
 
+    // หัวข้อ Dialog: ถ้ามี BBF ให้แสดง "สินค้าควรบริโภคก่อน" ถ้าไม่มีก็ "สินค้าหมดอายุ"
+    final hasBBF = items.any((item) => (item['date_type'] ?? '').toString().toUpperCase() == 'BBF');
+    final dialogTitlePrefix = hasBBF ? 'สินค้าควรบริโภคก่อน' : 'สินค้าหมดอายุ';
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
-          'สินค้าหมดอายุ\n$dialog_date_title',
+          '$dialogTitlePrefix\n$dialog_date_title',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 22,
@@ -490,18 +494,15 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ),
         content: items.isEmpty
-            ? const Text('ไม่พบสินค้าหมดอายุในวันนี้')
+            ? Text(hasBBF ? 'ไม่พบสินค้าควรบริโภคก่อนในวันนี้' : 'ไม่พบสินค้าหมดอายุในวันนี้')
             : SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: items.map((item_data) {
-                    String display_item_name =
-                        item_data['item_name'] ?? 'ไม่มีชื่อ';
+                    String display_item_name = item_data['item_name'] ?? 'ไม่มีชื่อ';
                     try {
-                      DateTime expiry_date = DateTime.parse(
-                        item_data['item_date'],
-                      );
+                      DateTime expiry_date = DateTime.parse(item_data['item_date']);
                       display_item_name += ' (${expiry_date.year + 543} พ.ศ.)';
                     } catch (e) {}
 
@@ -516,8 +517,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                 ...item_data,
                                 'item_img': item_data['item_img_full_url'],
                                 'category': item_data['category'],
-                                'storage_location':
-                                    item_data['storage_location'],
+                                'storage_location': item_data['storage_location'],
                                 'name': item_data['item_name'],
                                 'barcode': item_data['item_barcode'],
                               },
@@ -529,8 +529,7 @@ class _CalendarPageState extends State<CalendarPage> {
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Row(
                           children: [
-                            if (item_data['item_img_full_url'] != null &&
-                                item_data['item_img_full_url'].isNotEmpty)
+                            if (item_data['item_img_full_url'] != null && item_data['item_img_full_url'].isNotEmpty)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(4),
                                 child: Image.network(

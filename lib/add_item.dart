@@ -37,7 +37,7 @@ class _AddItemPageState extends State<AddItemPage> {
   String _selected_storage = 'เลือกพื้นที่จัดเก็บ';
   XFile? _picked_image;
   bool _is_loading = false;
-  List<String> _units = ['วันหมดอายุ(EXP)', 'วันผลิต(MFG)'];
+  List<String> _units = ['วันหมดอายุ(EXP)', 'ควรบริโภคก่อน(BBF)'];
   List<String> _categories = ['เลือกประเภท', 'เพิ่มประเภทสินค้า'];
   List<Map<String, dynamic>> _storage_locations = [
     {'area_id': null, 'area_name': 'เลือกพื้นที่จัดเก็บ'},
@@ -63,7 +63,16 @@ class _AddItemPageState extends State<AddItemPage> {
       _notification_days_controller.text = (item['item_notification'] != null && item['item_notification'].toString().trim().isNotEmpty)
           ? item['item_notification'].toString()
           : '7';
-      _selected_unit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
+      // ตรวจสอบและแปลงค่า unit/date_type ให้ตรงกับ dropdown
+      String rawUnit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
+      if (rawUnit == 'EXP' || rawUnit == 'วันหมดอายุ(EXP)') {
+        _selected_unit = 'วันหมดอายุ(EXP)';
+      } else if (rawUnit == 'BBF' || rawUnit == 'ควรบริโภคก่อน(BBF)') {
+        _selected_unit = 'ควรบริโภคก่อน(BBF)';
+      } else {
+        // ถ้าไม่ตรง ให้ใช้ default
+        _selected_unit = _units.contains(rawUnit) ? rawUnit : 'วันหมดอายุ(EXP)';
+      }
       _selected_category = item['category'] ?? 'เลือกประเภท';
       _selected_storage = item['storage_location'] ?? 'เลือกพื้นที่จัดเก็บ';
       if (item['item_date'] != null) {
@@ -77,6 +86,11 @@ class _AddItemPageState extends State<AddItemPage> {
     }
     // ป้องกัน error dropdown: ถ้า value ไม่อยู่ใน list ให้เซ็ตเป็น default
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_units.contains(_selected_unit)) {
+        setState(() {
+          _selected_unit = 'วันหมดอายุ(EXP)';
+        });
+      }
       if (!_categories.contains(_selected_category)) {
         setState(() {
           _selected_category = 'เลือกประเภท';
@@ -529,6 +543,7 @@ class _AddItemPageState extends State<AddItemPage> {
       request.fields['user_id'] = _current_user_id.toString();
       request.fields['category'] = _selected_category;
       request.fields['storage_location'] = _selected_storage;
+      request.fields['date_type'] = _selected_unit;
 
       // หา area_id จากชื่อพื้นที่จัดเก็บที่เลือก
       int? areaId;
@@ -542,10 +557,10 @@ class _AddItemPageState extends State<AddItemPage> {
         request.fields['storage_id'] = areaId.toString();
       }
 
-      // อัปโหลดรูปภาพ (key แตกต่างกัน)
+      // อัปโหลดรูปภาพ (key ต้องเป็น 'item_img' เพื่อรองรับแก้ไข)
       if (_picked_image != null) {
         request.files.add(
-          await http.MultipartFile.fromPath('image', _picked_image!.path),
+          await http.MultipartFile.fromPath('item_img', _picked_image!.path),
         );
       }
 

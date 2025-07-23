@@ -200,12 +200,14 @@ class IndexPageState extends State<IndexPage> {
                           final item = _stored_items[index];
                           final days_left = _calculate_days_left(item['item_date']);
                           final status_info = _get_status_info(days_left);
-
+                          // ตรวจสอบ date_type เพื่อใช้ข้อความที่เหมาะสม
+                          final dateType = (item['date_type'] ?? '').toString().toUpperCase();
                           return _build_item_card(
                             item: item,
                             days_left: days_left,
                             status_text: status_info['text'],
                             status_color: status_info['color'],
+                            date_type: dateType,
                           );
                         },
                       ),
@@ -219,6 +221,7 @@ class IndexPageState extends State<IndexPage> {
     required int days_left,
     required String status_text,
     required Color status_color,
+    required String date_type,
   }) {
     return GestureDetector(
       onTap: () async {
@@ -330,7 +333,7 @@ class IndexPageState extends State<IndexPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              _format_expire_date(item['item_date'] ?? '', days_left),
+                              _format_expire_date(item['item_date'] ?? '', days_left, date_type),
                               style: TextStyle(
                                 fontSize: 14,
                                 color: status_color,
@@ -395,15 +398,19 @@ class IndexPageState extends State<IndexPage> {
     );
   }
 
-  String _format_expire_date(String expire_date, int days_left) {
+  String _format_expire_date(String expire_date, int days_left, String date_type) {
+    String label = 'หมดอายุ';
+    if (date_type == 'BBF') {
+      label = 'ควรบริโภคก่อน';
+    }
     if (days_left < 0) {
-      return 'หมดอายุแล้ว ${days_left.abs()} วัน';
+      return '$labelแล้ว ${days_left.abs()} วัน';
     } else if (days_left == 0) {
-      return 'หมดอายุวันนี้';
+      return '$labelวันนี้';
     } else if (days_left == 1) {
-      return 'หมดอายุพรุ่งนี้';
+      return '$labelพรุ่งนี้';
     } else if (days_left <= 30) {
-      return 'หมดอายุอีก $days_left วัน';
+      return '$labelอีก $days_left วัน';
     } else {
       try {
         final date = DateTime.parse(expire_date);
@@ -412,7 +419,7 @@ class IndexPageState extends State<IndexPage> {
           'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
         ];
         final buddhist_year = date.year + 543;
-        return 'หมดอายุ ${date.day} ${months[date.month]} $buddhist_year';
+        return '$label ${date.day} ${months[date.month]} $buddhist_year';
       } catch (e) {
         return 'ไม่ระบุวันหมดอายุ';
       }

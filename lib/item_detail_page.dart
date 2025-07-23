@@ -53,8 +53,15 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         ? item['item_notification'].toString()
         : '-';
 
-    // แก้ไขให้ดึง unit จาก key 'unit' (หรือ 'date_type' ถ้าไม่มี)
-    _selected_unit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
+    // แก้ไขให้แปลงรหัส EXP/BBF เป็นข้อความภาษาไทยที่ AddItemPage รองรับ
+    final rawUnit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
+    if (rawUnit == 'EXP') {
+      _selected_unit = 'วันหมดอายุ(EXP)';
+    } else if (rawUnit == 'BBF') {
+      _selected_unit = 'ควรบริโภคก่อน(BBF)';
+    } else {
+      _selected_unit = rawUnit;
+    }
     _selected_category = item['category'] ?? 'เลือกประเภท';
     _selected_storage = item['storage_location'] ?? 'เลือกพื้นที่จัดเก็บ';
 
@@ -395,13 +402,22 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () async {
-                          // เปิดหน้า AddItemPage เพื่อแก้ไขข้อมูล
+                          // เตรียม item_data ให้ date_type เป็นภาษาไทยก่อนส่งไป AddItemPage (รองรับทั้งรหัสและ label)
+                          final itemDataForEdit = Map<String, dynamic>.from(widget.item_data);
+                          final rawUnit = widget.item_data['unit'] ?? widget.item_data['date_type'] ?? 'วันหมดอายุ(EXP)';
+                          if (rawUnit == 'EXP' || rawUnit == 'วันหมดอายุ(EXP)') {
+                            itemDataForEdit['date_type'] = 'วันหมดอายุ(EXP)';
+                          } else if (rawUnit == 'BBF' || rawUnit == 'ควรบริโภคก่อน(BBF)') {
+                            itemDataForEdit['date_type'] = 'ควรบริโภคก่อน(BBF)';
+                          } else {
+                            itemDataForEdit['date_type'] = rawUnit;
+                          }
                           final result = await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => AddItemPage(
                                 is_existing_item: true,
-                                item_data: widget.item_data,
+                                item_data: itemDataForEdit,
                               ),
                             ),
                           );
