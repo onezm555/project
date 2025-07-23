@@ -3,8 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart'; // Import SharedPre
 import 'login.dart';
 import 'expired_items.dart';
 import 'profile_edit_page.dart'; // ตรวจสอบว่าไฟล์นี้อยู่ใน path ที่ถูกต้อง
-
-class MenuPage extends StatefulWidget { // เปลี่ยนเป็น StatefulWidget เพื่อโหลดข้อมูล
+import 'statistics_page.dart'; // ตรวจสอบว่าไฟล์นี้อยู่ใน path ที่ถูกต้อง
+class MenuPage extends StatefulWidget {
+  // เปลี่ยนเป็น StatefulWidget เพื่อโหลดข้อมูล
   const MenuPage({Key? key}) : super(key: key);
 
   @override
@@ -42,16 +43,18 @@ class _MenuPageState extends State<MenuPage> {
       body: ListView(
         children: [
           const SizedBox(height: 8),
-          MenuItem( // ไม่ใช่ const แล้ว
+          MenuItem(
+            // ไม่ใช่ const แล้ว
             icon: Icons.person_outline,
             title: 'โปรไฟล์ผู้ใช้', // ส่ง title เข้าไป
-            onTap: () async { // ทำให้เป็น async เพื่อรอผลลัพธ์จาก ProfileEditPage
+            onTap: () async {
+              // ทำให้เป็น async เพื่อรอผลลัพธ์จาก ProfileEditPage
               final result = await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => ProfileEditPage(
                     userEmail: _userEmail, // ใช้อีเมลที่ดึงมา
-                    userName: _userName,   // ใช้ชื่อที่ดึงมา
+                    userName: _userName, // ใช้ชื่อที่ดึงมา
                   ),
                 ),
               );
@@ -75,7 +78,22 @@ class _MenuPageState extends State<MenuPage> {
             },
           ),
           // แก้ไขตรงนี้: เพิ่ม named parameter 'title' ให้กับ MenuItem ที่เป็น const
-          const MenuItem(icon: Icons.history, title: 'สถิติ'),
+          MenuItem(
+            icon: Icons.history,
+            title: 'สถิติ',
+            onTap: () {
+              try {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const StatisticsPage(),
+                  ),
+                );
+              } catch (e) {
+                print('Error navigating to statistics: $e');
+              }
+            },
+          ),
           const MenuItem(icon: Icons.brightness_6_outlined, title: 'ธีมของแอป'),
           const MenuItem(icon: Icons.info_outline, title: 'เกี่ยวกับแอป'),
 
@@ -83,7 +101,8 @@ class _MenuPageState extends State<MenuPage> {
             icon: Icons.logout,
             title: 'ออกจากระบบ', // ส่ง title เข้าไป
             isLogout: true,
-            onTap: () async { // ทำให้เป็น async เพื่อใช้ await กับ SharedPreferences
+            onTap: () async {
+              // ทำให้เป็น async เพื่อใช้ await กับ SharedPreferences
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
@@ -95,18 +114,21 @@ class _MenuPageState extends State<MenuPage> {
                       child: const Text('ยกเลิก'),
                     ),
                     TextButton(
-                      onPressed: () async { // ทำให้เป็น async
+                      onPressed: () async {
                         Navigator.pop(context);
-                        SharedPreferences prefs = await SharedPreferences.getInstance();
+                        SharedPreferences prefs =
+                            await SharedPreferences.getInstance();
                         await prefs.remove('user_id');
                         await prefs.remove('saved_email');
                         await prefs.remove('saved_password');
-                        await prefs.remove('user_name'); // ลบชื่อผู้ใช้ด้วย
-                        await prefs.remove('user_img'); // ลบรูปโปรไฟล์ด้วย
+                        await prefs.remove('user_name');
+                        await prefs.remove('user_img');
 
                         Navigator.pushAndRemoveUntil(
                           context,
-                          MaterialPageRoute(builder: (context) => const LoginPage()),
+                          MaterialPageRoute(
+                            builder: (context) => const LoginPage(),
+                          ),
                           (route) => false,
                         );
                       },
