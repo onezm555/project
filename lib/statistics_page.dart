@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:intl/intl.dart';
-import 'dart:math' as math;
 
 class StatisticsPage extends StatefulWidget {
   const StatisticsPage({Key? key}) : super(key: key);
@@ -13,165 +12,404 @@ class StatisticsPage extends StatefulWidget {
   State<StatisticsPage> createState() => _StatisticsPageState();
 }
 
-class _StatisticsPageState extends State<StatisticsPage>
-    with TickerProviderStateMixin {
-  DateTime _selectedDate = DateTime.now();
-  Map<String, dynamic> _statistics = {
-    'total_items': 0,
-    'expired_items': 0,
-    'disposed_items': 0,
-    'active_items': 0,
-  };
+class _StatisticsPageState extends State<StatisticsPage> {
   bool _isLoading = true;
-  String? _errorMessage;
-  late AnimationController _pieAnimationController;
-  late AnimationController _countAnimationController;
-  late Animation<double> _pieAnimation;
-  late Animation<double> _countAnimation;
+  String _errorMessage = '';
+  String _selectedMonth = 'all'; // เริ่มต้นด้วย 'all' เพื่อแสดงสถิติทั้งหมด
+  
+  // สถิติข้อมูล
+  int _totalItems = 0;
+  int _expiredItems = 0;
+  int _disposedItems = 0;
+  int _activeItems = 0;
+  double _expiredChangePercent = 0.0;
+  
+  List<dynamic> _categoryStats = [];
 
   @override
   void initState() {
     super.initState();
-    _pieAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _countAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-    _pieAnimation = CurvedAnimation(
-      parent: _pieAnimationController,
-      curve: Curves.easeInOutCubic,
-    );
-    _countAnimation = CurvedAnimation(
-      parent: _countAnimationController,
-      curve: Curves.easeOutCubic,
-    );
+    _selectedMonth = 'all'; // เริ่มต้นด้วยสถิติทั้งหมด
     _loadStatistics();
   }
 
-  @override
-  void dispose() {
-    _pieAnimationController.dispose();
-    _countAnimationController.dispose();
-    super.dispose();
+  String _getCurrentMonth() {
+    DateTime now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}';
+  }
+
+  bool _isCurrentMonth() {
+    return _selectedMonth == _getCurrentMonth();
+  }
+
+  // Helper methods สำหรับ parsing ข้อมูล
+  int _parseToInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is double) return value.toInt();
+    return 0;
+  }
+
+  double _parseToDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
   }
 
   Future<void> _loadStatistics() async {
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _errorMessage = '';
     });
 
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? userId = prefs.getString('user_id');
       
-      if (userId == null) {
+      // ลองดึง user_id เป็นทั้ง String และ int แบบ safe
+      String? userIdString;
+      int? userIdInt;
+      String? userId;
+      
+      try {
+        userIdString = prefs.getString('user_id');
+      } catch (e) {
+        print('getString error in _loadStatistics: $e');
+        userIdString = null;
+      }
+      
+      try {
+        userIdInt = prefs.getInt('user_id');
+      } catch (e) {
+        print('getInt error in _loadStatistics: $e');
+        userIdInt = null;
+      }
+      
+      if (userIdString != null && userIdString.isNotEmpty) {
+        userId = userIdString;
+      } else if (userIdInt != null) {
+        userId = userIdInt.toString();
+      }
+      
+      if (userId == null || userId.isEmpty) {
         setState(() {
-          _errorMessage = 'ไม่พบข้อมูลผู้ใช้';
           _isLoading = false;
+          _errorMessage = 'ไม่พบข้อมูลผู้ใช้ กรุณาเข้าสู่ระบบใหม่';
         });
         return;
       }
 
-      await dotenv.load();
-      String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
+      // Debug print
+      print('User ID String from SharedPreferences: $userIdString');
+      print('User ID Int from SharedPreferences: $userIdInt');
+      print('Final User ID: $userId');
+      print('Selected month: $_selectedMonth');
+
+      final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
+      String apiUrl;
       
-      String yearMonth = DateFormat('yyyy-MM').format(_selectedDate);
+      if (_selectedMonth == 'all') {
+        // สำหรับสถิติทั้งหมด ไม่ส่งพารามิเตอร์ month
+        apiUrl = '${baseUrl}get_statistics.php?user_id=$userId';
+      } else {
+        // สำหรับสถิติรายเดือน
+        apiUrl = '${baseUrl}get_statistics.php?user_id=$userId&month=$_selectedMonth';
+      }
+      
+      print('API URL: $apiUrl');
+      print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
+      print('Making HTTP GET request...');
       
       final response = await http.get(
-        Uri.parse('${baseUrl}get_statistics.php?user_id=$userId&month=$yearMonth'),
-        headers: {'Content-Type': 'application/json'},
-      );
+        Uri.parse(apiUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 30));
+
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['success']) {
+        try {
+          final data = json.decode(response.body);
+          print('Decoded data: $data');
+          
+          if (data['success'] == true) {
+            setState(() {
+              _totalItems = _parseToInt(data['data']['total_items']);
+              _expiredItems = _parseToInt(data['data']['expired_items']);
+              _disposedItems = _parseToInt(data['data']['disposed_items']);
+              _activeItems = _parseToInt(data['data']['active_items']);
+              _expiredChangePercent = _parseToDouble(data['data']['expired_change_percent']);
+              _categoryStats = data['data']['category_breakdown'] ?? [];
+              _isLoading = false;
+            });
+          } else {
+            final errorMessage = data['message']?.toString() ?? 'เกิดข้อผิดพลาดในการโหลดข้อมูล';
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Server Error: $errorMessage';
+            });
+            print('API returned success: false');
+            print('Error message: ${data['message']}');
+            print('Full response data: $data');
+          }
+        } catch (jsonError) {
+          print('JSON parsing error: $jsonError');
           setState(() {
-            _statistics = data['data'];
             _isLoading = false;
-          });
-          _startAnimations();
-        } else {
-          setState(() {
-            _errorMessage = data['message'] ?? 'เกิดข้อผิดพลาด';
-            _isLoading = false;
+            _errorMessage = 'เกิดข้อผิดพลาดในการแปลงข้อมูล: $jsonError';
           });
         }
       } else {
+        print('HTTP Error: ${response.statusCode}');
+        print('Response body: ${response.body}');
         setState(() {
-          _errorMessage = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้';
           _isLoading = false;
+          _errorMessage = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ (HTTP ${response.statusCode})';
         });
       }
     } catch (e) {
+      print('Exception occurred: $e');
+      print('Exception type: ${e.runtimeType}');
       setState(() {
-        _errorMessage = 'เกิดข้อผิดพลาด: $e';
         _isLoading = false;
+        _errorMessage = 'เกิดข้อผิดพลาด: $e';
       });
     }
   }
 
-  void _startAnimations() {
-    _pieAnimationController.reset();
-    _countAnimationController.reset();
-    _pieAnimationController.forward();
-    _countAnimationController.forward();
+  Future<void> _testWithDifferentUserId() async {
+    try {
+      print('=== Testing with User ID 1 ===');
+      
+      final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
+      final String testUrl = '${baseUrl}get_statistics.php?user_id=1&month=$_selectedMonth';
+      
+      print('Test URL with User ID 1: $testUrl');
+      
+      final response = await http.get(
+        Uri.parse(testUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 30));
+      
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Test User ID 1 - HTTP ${response.statusCode}: ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}...'),
+            duration: const Duration(seconds: 10),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Test with User ID 1 error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Test with User ID 1 failed: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _testConnection() async {
+    try {
+      print('=== Testing Connection ===');
+      
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      
+      // ลองดึง user_id เป็นทั้ง String และ int
+      String? userIdString = prefs.getString('user_id');
+      int? userIdInt = prefs.getInt('user_id');
+      String? userId;
+      
+      if (userIdString != null && userIdString.isNotEmpty) {
+        userId = userIdString;
+      } else if (userIdInt != null) {
+        userId = userIdInt.toString();
+      }
+      
+      print('User ID String from SharedPreferences: $userIdString');
+      print('User ID Int from SharedPreferences: $userIdInt');
+      print('Final User ID: $userId');
+      print('Selected month: $_selectedMonth');
+      print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
+      
+      final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
+      final String testUrl = '${baseUrl}get_statistics.php?user_id=${userId ?? "1"}&month=$_selectedMonth';
+      
+      print('Test URL: $testUrl');
+      
+      final response = await http.get(
+        Uri.parse(testUrl),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      
+      print('Response status: ${response.statusCode}');
+      print('Response headers: ${response.headers}');
+      print('Response body: ${response.body}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('HTTP ${response.statusCode}: ${response.body.substring(0, response.body.length > 100 ? 100 : response.body.length)}...'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Test connection error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Connection test failed: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   void _changeMonth(int direction) {
+    if (_selectedMonth == 'all') {
+      // จาก 'all' ไปเดือนปัจจุบัน (ทางซ้าย)
+      if (direction == -1) {
+        setState(() {
+          _selectedMonth = _getCurrentMonth();
+        });
+        _loadStatistics();
+      }
+      // ไม่สามารถไปทางขวาจาก 'all' ได้
+      return;
+    }
+    
+    DateTime currentDate = DateTime.parse('$_selectedMonth-01');
+    DateTime newDate = DateTime(currentDate.year, currentDate.month + direction, 1);
+    String newMonth = '${newDate.year}-${newDate.month.toString().padLeft(2, '0')}';
+    
+    // ตรวจสอบว่าเดือนใหม่ไม่เกินเดือนปัจจุบัน
+    DateTime now = DateTime.now();
+    String currentMonth = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    
+    if (newMonth.compareTo(currentMonth) > 0) {
+      // หากเดือนใหม่มากกว่าเดือนปัจจุบัน ไม่ให้เปลี่ยน
+      return;
+    }
+    
     setState(() {
-      _selectedDate = DateTime(
-        _selectedDate.year,
-        _selectedDate.month + direction,
-        1,
-      );
+      _selectedMonth = newMonth;
     });
     _loadStatistics();
+  }
+
+  String _getMonthName(String monthStr) {
+    if (monthStr == 'all') {
+      return 'สถิติทั้งหมด';
+    }
+    
+    List<String> months = [
+      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ];
+    
+    List<String> parts = monthStr.split('-');
+    int year = int.parse(parts[0]);
+    int month = int.parse(parts[1]);
+    
+    return '${months[month - 1]} $year';
+  }
+
+  List<PieChartSectionData> _getPieChartSections() {
+    if (_totalItems == 0) return [];
+    
+    List<PieChartSectionData> sections = [];
+    
+    // เพิ่มส่วนสำหรับ expired items
+    if (_expiredItems > 0) {
+      sections.add(PieChartSectionData(
+        color: const Color(0xFF8B5CF6), // สีม่วง
+        value: _expiredItems.toDouble(),
+        title: '${((_expiredItems / _totalItems) * 100).toStringAsFixed(1)}%',
+        radius: 60,
+        titleStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ));
+    }
+    
+    // เพิ่มส่วนสำหรับ disposed items
+    if (_disposedItems > 0) {
+      sections.add(PieChartSectionData(
+        color: const Color(0xFFEF4444), // สีแดง
+        value: _disposedItems.toDouble(),
+        title: '${((_disposedItems / _totalItems) * 100).toStringAsFixed(1)}%',
+        radius: 60,
+        titleStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ));
+    }
+    
+    // เพิ่มส่วนสำหรับ active items
+    if (_activeItems > 0) {
+      sections.add(PieChartSectionData(
+        color: const Color(0xFF10B981), // สีเขียว
+        value: _activeItems.toDouble(),
+        title: '${((_activeItems / _totalItems) * 100).toStringAsFixed(1)}%',
+        radius: 60,
+        titleStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ));
+    }
+    
+    return sections;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text(
           'สถิติ',
           style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
+            color: Colors.black87,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        backgroundColor: const Color(0xFF6366F1),
+        backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Colors.black87),
           onPressed: () => Navigator.pop(context),
         ),
+        centerTitle: true,
       ),
       body: _isLoading
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    color: Color(0xFF6366F1),
-                    strokeWidth: 3,
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'กำลังโหลดข้อมูล...',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : _errorMessage != null
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage.isNotEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -179,54 +417,311 @@ class _StatisticsPageState extends State<StatisticsPage>
                       Icon(
                         Icons.error_outline,
                         size: 64,
-                        color: Colors.red[300],
+                        color: Colors.grey[400],
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        _errorMessage!,
-                        style: const TextStyle(
+                        _errorMessage,
+                        style: TextStyle(
                           fontSize: 16,
-                          color: Colors.red,
+                          color: Colors.grey[600],
                         ),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadStatistics,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6366F1),
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text('ลองใหม่'),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ElevatedButton(
+                            onPressed: _loadStatistics,
+                            child: const Text('ลองใหม่'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _testConnection,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                            ),
+                            child: const Text('ทดสอบการเชื่อมต่อ'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _testWithDifferentUserId,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                            ),
+                            child: const Text('ทดสอบ User ID 1'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 )
               : SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Column(
-                      children: [
-                        _buildMonthNavigator(),
-                        const SizedBox(height: 24),
-                        _buildStatisticsCards(),
-                        const SizedBox(height: 24),
-                        _buildPieChart(),
-                        const SizedBox(height: 24),
-                        _buildDetailCards(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Debug information (แสดงเฉพาะเมื่อมี error)
+                      if (_errorMessage.isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.orange[200]!),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Debug Information:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text('Selected Month: $_selectedMonth'),
+                              Text('Base URL: ${dotenv.env['API_BASE_URL'] ?? 'Not found in .env'}'),
+                              FutureBuilder<String?>(
+                                future: SharedPreferences.getInstance().then((prefs) {
+                                  String? userIdString = prefs.getString('user_id');
+                                  int? userIdInt = prefs.getInt('user_id');
+                                  if (userIdString != null && userIdString.isNotEmpty) {
+                                    return userIdString;
+                                  } else if (userIdInt != null) {
+                                    return userIdInt.toString();
+                                  }
+                                  return null;
+                                }),
+                                builder: (context, snapshot) {
+                                  return Text('User ID: ${snapshot.data ?? 'Loading...'}');
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
-                    ),
+                      
+                      // Month selector
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton(
+                              onPressed: _selectedMonth == 'all' ? () => _changeMonth(-1) : () => _changeMonth(-1),
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            Expanded(
+                              child: Text(
+                                _getMonthName(_selectedMonth),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: (_selectedMonth == 'all' || _isCurrentMonth()) ? null : () => _changeMonth(1),
+                              icon: Icon(
+                                Icons.chevron_right,
+                                color: (_selectedMonth == 'all' || _isCurrentMonth()) ? Colors.grey[400] : null,
+                              ),
+                            ),
+                            // เพิ่มปุ่มกลับไปสถิติทั้งหมด
+                            if (_selectedMonth != 'all')
+                              IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedMonth = 'all';
+                                  });
+                                  _loadStatistics();
+                                },
+                                icon: const Icon(Icons.home),
+                                tooltip: 'กลับไปสถิติทั้งหมด',
+                              ),
+                          ],
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      // Statistics cards
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildStatCard(
+                              'ทั้งหมด',
+                              _totalItems.toString(),
+                              Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildStatCard(
+                              'ใช้หมด',
+                              _expiredItems.toString(),
+                              Colors.purple,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildStatCard(
+                              'หมดอายุ',
+                              _disposedItems.toString(),
+                              Colors.red,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildStatCard(
+                              'ปกติ',
+                              _activeItems.toString(),
+                              Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      // เพิ่มการแสดงเปรียบเทียบกับเดือนก่อน
+                      if (_expiredChangePercent != 0) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: _expiredChangePercent >= 0 ? Colors.red[50] : Colors.green[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _expiredChangePercent >= 0 ? Colors.red[200]! : Colors.green[200]!,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _expiredChangePercent >= 0 ? Icons.trending_up : Icons.trending_down,
+                                color: _expiredChangePercent >= 0 ? Colors.red : Colors.green,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'รายการหมดอายุเดือนนี้ ${_expiredChangePercent >= 0 ? "เพิ่มขึ้น" : "ลดลง"} ${_expiredChangePercent.abs().toStringAsFixed(1)}% เทียบกับเดือนที่แล้ว',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: _expiredChangePercent >= 0 ? Colors.red[700] : Colors.green[700],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      
+                      const SizedBox(height: 24),
+                      
+                      // Pie Chart
+                      if (_totalItems > 0)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              SizedBox(
+                                height: 200,
+                                child: PieChart(
+                                  PieChartData(
+                                    sections: _getPieChartSections(),
+                                    sectionsSpace: 2,
+                                    centerSpaceRadius: 40,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _buildLegendItem('ใช้หมด', const Color(0xFF8B5CF6)),
+                                  _buildLegendItem('หมดอายุ', const Color(0xFFEF4444)),
+                                  _buildLegendItem('ปกติ', const Color(0xFF10B981)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      // Category breakdown
+                      if (_categoryStats.isNotEmpty) ...[
+                        const Text(
+                          'สถิติตามหมวดหมู่',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: _categoryStats.map((category) => 
+                              _buildCategoryItem(category)
+                            ).toList(),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
     );
   }
 
-  Widget _buildMonthNavigator() {
+  Widget _buildStatCard(String title, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -235,251 +730,32 @@ class _StatisticsPageState extends State<StatisticsPage>
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            onPressed: () => _changeMonth(-1),
-            icon: const Icon(Icons.chevron_left, size: 28),
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1).withOpacity(0.1),
-              foregroundColor: const Color(0xFF6366F1),
-            ),
-          ),
-          Text(
-            DateFormat('MMMM yyyy', 'th').format(_selectedDate),
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF1F2937),
-            ),
-          ),
-          IconButton(
-            onPressed: () => _changeMonth(1),
-            icon: const Icon(Icons.chevron_right, size: 28),
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1).withOpacity(0.1),
-              foregroundColor: const Color(0xFF6366F1),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-Widget _buildStatisticsCards() {
-    int totalItems = int.tryParse(_statistics['total_items']?.toString() ?? '') ?? 0;
-    int expiredItems = int.tryParse(_statistics['expired_items']?.toString() ?? '') ?? 0;
-    int disposedItems = int.tryParse(_statistics['disposed_items']?.toString() ?? '') ?? 0;
-
-    return Row(
-      children: [
-        Expanded(
-          child: _buildStatCard(
-            'ทั้งหมด',
-            totalItems.toString(),
-            Icons.inventory_2_outlined,
-            const Color(0xFF6366F1),
-            0,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            'หมดอายุ',
-            expiredItems.toString(),
-            Icons.schedule_outlined,
-            const Color(0xFFEF4444),
-            1,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            'ใช้หมดแล้ว',
-            disposedItems.toString(),
-            Icons.delete_outline,
-            const Color(0xFF10B981),
-            2,
-          ),
-        ),
-      ],
-    );
-  }
-
-Widget _buildStatCard(String title, String value, IconData icon, Color color, int index) {
-    return AnimatedBuilder(
-      animation: _countAnimation,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, 50 * (1 - _countAnimation.value)),
-          child: Opacity(
-            opacity: _countAnimation.value,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      icon,
-                      size: 24,
-                      color: color,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  AnimatedBuilder(
-                    animation: _countAnimation,
-                    builder: (context, child) {
-                      // Safely parse the value to an int.
-                      // Use 0 as a fallback if parsing fails.
-                      int parsedValue = int.tryParse(value) ?? 0;
-                      int animatedValue = (parsedValue * _countAnimation.value).round();
-                      return Text(
-                        animatedValue.toString(),
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF6B7280),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPieChart() {
-    int expiredItems = int.tryParse(_statistics['expired_items']?.toString() ?? '') ?? 0;
-    int disposedItems = int.tryParse(_statistics['disposed_items']?.toString() ?? '') ?? 0;
-    int activeItems = int.tryParse(_statistics['active_items']?.toString() ?? '') ?? 0;
-    int totalItems = expiredItems + disposedItems + activeItems;
-
-    if (totalItems == 0) {
-      return Container(
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: const Column(
-          children: [
-            Icon(
-              Icons.pie_chart_outline,
-              size: 64,
-              color: Color(0xFFD1D5DB),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'ไม่มีข้อมูลในเดือนนี้',
-              style: TextStyle(
-                fontSize: 16,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
       child: Column(
         children: [
-          const Text(
-            'สัดส่วนสถานะของไอเทม',
+          Text(
+            title,
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF1F2937),
+              fontSize: 14,
+              color: Colors.grey[600],
             ),
           ),
-          const SizedBox(height: 24),
-          SizedBox(
-            height: 200,
-            child: AnimatedBuilder(
-              animation: _pieAnimation,
-              builder: (context, child) {
-                return CustomPaint(
-                  size: const Size(200, 200),
-                  painter: PieChartPainter(
-                    expiredItems: expiredItems,
-                    disposedItems: disposedItems,
-                    activeItems: activeItems,
-                    animationValue: _pieAnimation.value,
-                  ),
-                );
-              },
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
           ),
-          const SizedBox(height: 24),
-          _buildLegend(),
         ],
       ),
-    );
-  }
-
-  Widget _buildLegend() {
-    return Column(
-      children: [
-        _buildLegendItem('หมดอายุแล้ว', const Color(0xFFEF4444)),
-        const SizedBox(height: 8),
-        _buildLegendItem('ใช้หมดแล้ว', const Color(0xFF10B981)),
-        const SizedBox(height: 8),
-        _buildLegendItem('ยังใช้ได้', const Color(0xFF6366F1)),
-      ],
     );
   }
 
   Widget _buildLegendItem(String label, Color color) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 16,
@@ -489,229 +765,46 @@ Widget _buildStatCard(String title, String value, IconData icon, Color color, in
             borderRadius: BorderRadius.circular(4),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF6B7280),
-            fontWeight: FontWeight.w500,
-          ),
+          style: const TextStyle(fontSize: 14),
         ),
       ],
     );
   }
 
-  Widget _buildDetailCards() {
-    int expiredItems = int.tryParse(_statistics['expired_items']?.toString() ?? '') ?? 0;
-    int disposedItems = int.tryParse(_statistics['disposed_items']?.toString() ?? '') ?? 0;
-    int totalItems = int.tryParse(_statistics['total_items']?.toString() ?? '') ?? 0;
-
-    double expiredPercent = totalItems > 0 ? (expiredItems / totalItems) * 100 : 0;
-    double disposedPercent = totalItems > 0 ? (disposedItems / totalItems) * 100 : 0;
-
-    return Column(
-      children: [
-        _buildDetailCard(
-          'ของที่หมดอายุ',
-          '$expiredItems รายการ',
-          '${expiredPercent.toStringAsFixed(1)}% ของทั้งหมด',
-          Icons.schedule,
-          const Color(0xFFEF4444),
-          expiredPercent / 100,
-        ),
-        const SizedBox(height: 16),
-        _buildDetailCard(
-          'ของที่ใช้หมดแล้ว',
-          '$disposedItems รายการ',
-          '${disposedPercent.toStringAsFixed(1)}% ของทั้งหมด',
-          Icons.check_circle,
-          const Color(0xFF10B981),
-          disposedPercent / 100,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailCard(
-    String title,
-    String value,
-    String subtitle,
-    IconData icon,
-    Color color,
-    double progress,
-  ) {
-    return AnimatedBuilder(
-      animation: _countAnimation,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, 30 * (1 - _countAnimation.value)),
-          child: Opacity(
-            opacity: _countAnimation.value,
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          icon,
-                          size: 20,
-                          color: color,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1F2937),
-                              ),
-                            ),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF6B7280),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        value,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: progress * _countAnimation.value,
-                      backgroundColor: color.withOpacity(0.1),
-                      valueColor: AlwaysStoppedAnimation<Color>(color),
-                      minHeight: 6,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  Widget _buildCategoryItem(dynamic category) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            category['category']?.toString() ?? 'ไม่ระบุหมวดหมู่',
+            style: const TextStyle(fontSize: 16),
           ),
-        );
-      },
+          Row(
+            children: [
+              Text(
+                'ใช้หมด: ${_parseToInt(category['expired_count'])}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.purple[600],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text(
+                'หมดอายุ: ${_parseToInt(category['disposed_count'])}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.red[600],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
-}
-
-class PieChartPainter extends CustomPainter {
-  final int expiredItems;
-  final int disposedItems;
-  final int activeItems;
-  final double animationValue;
-
-  PieChartPainter({
-    required this.expiredItems,
-    required this.disposedItems,
-    required this.activeItems,
-    required this.animationValue,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2 * 0.8;
-    
-    final total = expiredItems + disposedItems + activeItems;
-    if (total == 0) return;
-
-    double startAngle = -math.pi / 2; // เริ่มจากด้านบน
-
-    // วาด expired items
-    if (expiredItems > 0) {
-      final sweepAngle = (expiredItems / total) * 2 * math.pi * animationValue;
-      final paint = Paint()
-        ..color = const Color(0xFFEF4444)
-        ..style = PaintingStyle.fill;
-      
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweepAngle,
-        true,
-        paint,
-      );
-      startAngle += sweepAngle / animationValue * animationValue;
-    }
-
-    // วาด disposed items
-    if (disposedItems > 0) {
-      final sweepAngle = (disposedItems / total) * 2 * math.pi * animationValue;
-      final paint = Paint()
-        ..color = const Color(0xFF10B981)
-        ..style = PaintingStyle.fill;
-      
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweepAngle,
-        true,
-        paint,
-      );
-      startAngle += sweepAngle / animationValue * animationValue;
-    }
-
-    // วาด active items
-    if (activeItems > 0) {
-      final sweepAngle = (activeItems / total) * 2 * math.pi * animationValue;
-      final paint = Paint()
-        ..color = const Color(0xFF6366F1)
-        ..style = PaintingStyle.fill;
-      
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweepAngle,
-        true,
-        paint,
-      );
-    }
-
-    // วาดวงกลมกลางเพื่อให้ดูเป็น donut chart
-    final innerPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    
-    canvas.drawCircle(center, radius * 0.5, innerPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

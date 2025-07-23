@@ -323,7 +323,7 @@ Future<void> _pickAndUploadImage() async {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: Colors.black87),
@@ -333,7 +333,11 @@ Future<void> _pickAndUploadImage() async {
         ),
         title: const Text(
           'โปรไฟล์ผู้ใช้',
-          style: TextStyle(color: Colors.black87),
+          style: TextStyle(
+            color: Colors.black87,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
         ),
         centerTitle: true,
       ),
@@ -374,8 +378,8 @@ Future<void> _pickAndUploadImage() async {
                     Text(
                       _currentUserName,
                       style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
                         color: Colors.black87,
                       ),
                       textAlign: TextAlign.center,
@@ -388,7 +392,13 @@ Future<void> _pickAndUploadImage() async {
                         showDialog(
                           context: context,
                           builder: (context) => AlertDialog(
-                            title: const Text('แก้ไขชื่อผู้ใช้'),
+                            title: const Text(
+                              'แก้ไขชื่อผู้ใช้',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                             content: TextField(
                               controller: _nameController,
                               decoration: const InputDecoration(
@@ -420,8 +430,8 @@ Future<void> _pickAndUploadImage() async {
               const Text(
                 'เปลี่ยนรหัสผ่าน',
                 style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
                   color: Colors.black87,
                 ),
               ),

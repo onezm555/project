@@ -126,15 +126,19 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        backgroundColor: Colors.grey[50],
-        elevation: 0,
         title: const Text(
           'รายการที่หมดอายุ/ใช้หมดแล้ว',
           style: TextStyle(
+            color: Colors.black87,
             fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: Colors.black,
+            fontWeight: FontWeight.w500,
           ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
         ),
         centerTitle: true,
       ),
@@ -366,42 +370,5 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
         ),
       ),
     );
-  }
-
-  // Format expire date (reused from index.dart)
-  // อาจจะไม่ได้ใช้โดยตรงในการแสดงผลหลักแล้ว แต่ยังคงมีประโยชน์หากต้องการแสดงรายละเอียดวันหมดอายุใน ItemDetailPage
-  String _format_expire_date(String expire_date, int days_left) {
-    if (days_left < 0) {
-      return 'เลยวันหมดอายุมาแล้ว ${days_left.abs()} วัน';
-    } else if (days_left == 0) {
-      return 'หมดอายุวันนี้';
-    } else if (days_left == 1) {
-      return 'หมดอายุพรุ่งนี้';
-    } else if (days_left <= 30) {
-      return 'หมดอายุอีก $days_left วัน';
-    } else {
-      try {
-        final date = DateTime.parse(expire_date);
-        final months = [
-          '',
-          'ม.ค.',
-          'ก.พ.',
-          'มี.ค.',
-          'เม.ย.',
-          'พ.ค.',
-          'มิ.ย.',
-          'ก.ค.',
-          'ส.ค.',
-          'ก.ย.',
-          'ต.ค.',
-          'พ.ย.',
-          'ธ.ค.',
-        ];
-        final buddhist_year = date.year + 543;
-        return 'หมดอายุ ${date.day} ${months[date.month]} $buddhist_year';
-      } catch (e) {
-        return 'ไม่ระบุวันหมดอายุ';
-      }
-    }
   }
 }
