@@ -34,6 +34,19 @@ class _NotificationPageState extends State<NotificationPage> {
     if (await Permission.notification.isDenied) {
       await Permission.notification.request();
     }
+    
+    // ตรวจสอบ Schedule Exact Alarm permission (Android 12+)
+    try {
+      final plugin = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      
+      if (plugin != null) {
+        final bool? granted = await plugin.requestExactAlarmsPermission();
+        debugPrint('[NOTI] Exact alarms permission granted: $granted');
+      }
+    } catch (e) {
+      debugPrint('[NOTI] Error requesting exact alarms permission: $e');
+    }
   }
 
   Future<void> _initializeNotifications() async {
@@ -59,7 +72,7 @@ class _NotificationPageState extends State<NotificationPage> {
       debugPrint('[NOTI] No userId found, abort fetch');
       return;
     }
-    final String apiUrl = '${dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'}/my_items.php?user_id=$userId';
+    final String apiUrl = '${dotenv.env['API_BASE_URL']}/notification_check.php?user_id=$userId&check_only=true';
     debugPrint('[NOTI] Fetching from: $apiUrl');
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -172,7 +185,32 @@ class _NotificationPageState extends State<NotificationPage> {
                     ],
                   ),
                 ),
-      // ...ไม่มี floatingActionButton สำหรับทดสอบแจ้งเตือน...
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            onPressed: _testNotification,
+            tooltip: 'ทดสอบการแจ้งเตือนทันที',
+            heroTag: "btn1",
+            child: const Icon(Icons.notifications_active),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _testScheduledNotification,
+            tooltip: 'ทดสอบการแจ้งเตือนล่วงหน้า',
+            heroTag: "btn2",
+            child: const Icon(Icons.schedule),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _checkPendingNotifications,
+            tooltip: 'ดู Pending Notifications',
+            heroTag: "btn3",
+            backgroundColor: Colors.green,
+            child: const Icon(Icons.list),
+          ),
+        ],
+      ),
     );
   }
 
@@ -431,6 +469,153 @@ class _NotificationPageState extends State<NotificationPage> {
         ],
       ),
     );
+  }
+
+  // ฟังก์ชันทดสอบการแจ้งเตือน
+  Future<void> _testNotification() async {
+    try {
+      await flutterLocalNotificationsPlugin.show(
+        99999, // ID สำหรับทดสอบ
+        'ทดสอบการแจ้งเตือน',
+        'นี่คือการแจ้งเตือนทดสอบ - เวลา ${DateTime.now().toString().substring(11, 19)}',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'test_channel',
+            'ทดสอบแจ้งเตือน',
+            channelDescription: 'ช่องทดสอบการแจ้งเตือน',
+            importance: Importance.max,
+            priority: Priority.high,
+          ),
+        ),
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ส่งการแจ้งเตือนทดสอบแล้ว'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถส่งการแจ้งเตือนได้: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ฟังก์ชันทดสอบการแจ้งเตือนล่วงหน้า
+  Future<void> _testScheduledNotification() async {
+    try {
+      final scheduleTime = DateTime.now().add(const Duration(seconds: 5));
+      
+      debugPrint('[TEST_NOTI] Scheduling notification for: $scheduleTime');
+      debugPrint('[TEST_NOTI] Current time: ${DateTime.now()}');
+      
+      // ตรวจสอบ pending notifications ก่อน
+      final pendingNotificationRequests = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+      debugPrint('[TEST_NOTI] Pending notifications: ${pendingNotificationRequests.length}');
+      
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        99998,
+        'ทดสอบการแจ้งเตือนล่วงหน้า',
+        'การแจ้งเตือนนี้ตั้งเวลาไว้ที่ ${scheduleTime.toString().substring(11, 19)} ตัวที่ ${pendingNotificationRequests.length + 1}',
+        tz.TZDateTime.from(scheduleTime, tz.local),
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'test_scheduled_channel',
+            'ทดสอบแจ้งเตือนล่วงหน้า',
+            channelDescription: 'ช่องทดสอบการแจ้งเตือนล่วงหน้า',
+            importance: Importance.max,
+            priority: Priority.high,
+            enableLights: true,
+            enableVibration: true,
+            playSound: true,
+            icon: '@mipmap/ic_launcher',
+            fullScreenIntent: true,
+            category: AndroidNotificationCategory.alarm,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+      
+      debugPrint('[TEST_NOTI] Scheduled notification successfully');
+      
+      // แสดงรายการ pending notifications หลังจากเพิ่ม
+      final newPendingNotificationRequests = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+      debugPrint('[TEST_NOTI] New pending notifications: ${newPendingNotificationRequests.length}');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ตั้งเวลาการแจ้งเตือนแล้ว\nจะแจ้งเตือนเวลา ${scheduleTime.toString().substring(11, 19)}\nPending: ${newPendingNotificationRequests.length}'),
+          backgroundColor: Colors.blue,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[TEST_NOTI] Error scheduling notification: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถตั้งเวลาการแจ้งเตือนได้: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ฟังก์ชันดู Pending Notifications
+  Future<void> _checkPendingNotifications() async {
+    try {
+      final pendingNotificationRequests = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+      
+      debugPrint('[PENDING_NOTI] Total pending: ${pendingNotificationRequests.length}');
+      
+      String message = 'มี ${pendingNotificationRequests.length} การแจ้งเตือนรอ\n\n';
+      
+      for (var notification in pendingNotificationRequests) {
+        message += 'ID: ${notification.id}\n';
+        message += 'Title: ${notification.title}\n';
+        message += 'Body: ${notification.body}\n\n';
+        debugPrint('[PENDING_NOTI] ${notification.id}: ${notification.title}');
+      }
+      
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Pending Notifications'),
+          content: SingleChildScrollView(
+            child: Text(message.isEmpty ? 'ไม่มีการแจ้งเตือนรอ' : message),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ปิด'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await flutterLocalNotificationsPlugin.cancelAll();
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('ยกเลิกการแจ้งเตือนทั้งหมดแล้ว'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              },
+              child: const Text('ยกเลิกทั้งหมด', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถดู pending notifications ได้: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   // ฟังก์ชันรีเฟรชการแจ้งเตือน

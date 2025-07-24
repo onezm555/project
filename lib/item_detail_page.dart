@@ -162,6 +162,173 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     );
   }
 
+  Future<void> _show_discard_options_dialog() async {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ปุ่มปิด X ด้านบน
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 8),
+                
+                // ข้อความ "สินค้าหมดหรือยัง"
+                const Text(
+                  'สินค้าหมดหรือยัง',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // ปุ่ม "ใช้ของหมด" (สีฟ้า)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _handle_used_up_item();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    child: const Text(
+                      'ใช้ของหมด',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // ปุ่ม "ทิ้ง/หมดอายุ" (สีฟ้า)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _handle_discard_expired_item();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    child: const Text(
+                      'ทิ้ง/หมดอายุ',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handle_used_up_item() async {
+    // จัดการเมื่อเลือก "ใช้ของหมด" - ส่งสถานะ 'disposed'
+    await _update_item_status('disposed', 'ใช้ของหมดเรียบร้อย');
+  }
+
+  Future<void> _handle_discard_expired_item() async {
+    // จัดการเมื่อเลือก "ทิ้ง/หมดอายุ" - ส่งสถานะ 'expired'
+    await _update_item_status('expired', 'ทิ้ง/หมดอายุเรียบร้อย');
+  }
+
+  Future<void> _update_item_status(String newStatus, String successMessage) async {
+    final String url = '$_apiBaseUrl/update_item_status.php';
+    
+    // รองรับทั้ง item_id และ id
+    int? itemId = widget.item_data['item_id'];
+    if (itemId == null && widget.item_data['id'] != null) {
+      itemId = widget.item_data['id'] is int
+          ? widget.item_data['id']
+          : int.tryParse(widget.item_data['id'].toString());
+    }
+
+    int? userId = widget.item_data['user_id'];
+    if (userId == null) {
+      // ถ้าไม่มี user_id ใน item_data ให้ดึงจาก SharedPreferences
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        userId = prefs.getInt('user_id');
+      } catch (e) {
+        debugPrint('Error loading user_id from SharedPreferences: $e');
+      }
+    }
+
+    if (itemId == null || userId == null) {
+      _show_snackbar('Error: ไม่พบข้อมูล Item ID หรือ User ID', Colors.red);
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        body: {
+          'item_id': itemId.toString(),
+          'user_id': userId.toString(),
+          'new_status': newStatus,
+        },
+      );
+
+      final Map<String, dynamic> responseData = json.decode(response.body);
+
+      if (response.statusCode == 200 && responseData['status'] == 'success') {
+        _show_snackbar(successMessage, Colors.green);
+        // อัพเดตข้อมูลใน widget.item_data
+        setState(() {
+          widget.item_data['item_status'] = newStatus;
+        });
+        // กลับไปหน้าก่อนหน้าพร้อมส่งสัญญาณว่ามีการเปลี่ยนแปลง
+        Navigator.of(context).pop(true);
+      } else {
+        _show_snackbar(responseData['message'] ?? 'ไม่สามารถอัพเดตสถานะได้', Colors.red);
+      }
+    } catch (e) {
+      debugPrint('Error updating item status: $e');
+      _show_snackbar('เกิดข้อผิดพลาด: ${e.toString()}', Colors.red);
+    }
+  }
+
   @override
   void dispose() {
     _name_controller.dispose();
@@ -447,8 +614,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () {
-                          // Handle "ทิ้งสิ่งของ/สิ่งของหมด" (Discard Item/Out of Stock) button press
-                          debugPrint('ทิ้งสิ่งของ/สิ่งของหมด button pressed');
+                          _show_discard_options_dialog();
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red, // Red button

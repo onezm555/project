@@ -4,6 +4,7 @@ import 'calendar.dart';
 import 'notification.dart';
 import 'menu.dart';
 import 'add_item.dart';
+import 'barcode_scanner_page.dart'; // เพิ่ม import สำหรับ barcode scanner
 import 'package:http/http.dart' as http; // For API calls in filter
 import 'dart:convert'; // For JSON parsing in filter
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // For API_BASE_URL
@@ -124,6 +125,40 @@ class _MainLayoutState extends State<MainLayout> {
       _indexPageKey.currentState?.fetchItemsData(filters: {});
     } else {
       _indexPageKey.currentState?.fetchItemsData(filters: {'search_query': query});
+    }
+  }
+
+  Future<void> _scan_barcode() async {
+    try {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const BarcodeScannerPage(),
+        ),
+      );
+      
+      // ตรวจสอบว่าผลลัพธ์ไม่ใช่ null, ไม่ใช่ -1 (cancel), และไม่ใช่ค่าว่าง
+      if (result != null && 
+          result is String && 
+          result.isNotEmpty && 
+          result != '-1') {
+        // ใส่รหัสบาร์โค้ดในช่องค้นหา
+        setState(() {
+          _search_controller.text = result;
+        });
+        // ทำการค้นหาด้วยรหัสบาร์โค้ด
+        _handle_search(result);
+      }
+      // ถ้าเป็น -1 หรือค่าอื่นที่ไม่ต้องการ ไม่ต้องทำอะไร
+    } catch (e) {
+      print('Error scanning barcode: $e');
+      // แสดงข้อความผิดพลาดถ้าจำเป็น
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('เกิดข้อผิดพลาดในการสแกนบาร์โค้ด'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -572,44 +607,31 @@ class _MainLayoutState extends State<MainLayout> {
                       child: TextField(
                         controller: _search_controller,
                         onChanged: _handle_search, // เปลี่ยนจาก onSubmitted เป็น onChanged
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           hintText: 'ค้นหาสินค้าของคุณ',
-                          hintStyle: TextStyle(
+                          hintStyle: const TextStyle(
                             color: Colors.grey,
                             fontSize: 14,
                           ),
-                          prefixIcon: Icon(
+                          prefixIcon: const Icon(
                             Icons.search,
                             color: Colors.grey,
                             size: 20,
                           ),
+                          suffixIcon: IconButton(
+                            onPressed: _scan_barcode,
+                            icon: const Icon(
+                              Icons.qr_code_scanner,
+                              color: Colors.grey,
+                              size: 20,
+                            ),
+                          ),
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(
+                          contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 12,
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    width: 45,
-                    height: 45,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.grey[300]!,
-                        width: 1,
-                      ),
-                    ),
-                    child: IconButton(
-                      onPressed: _show_add_item_menu,
-                      icon: const Icon(
-                        Icons.shopping_cart_outlined,
-                        color: Colors.grey,
-                        size: 20,
                       ),
                     ),
                   ),

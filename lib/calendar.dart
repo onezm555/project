@@ -197,19 +197,6 @@ class _CalendarPageState extends State<CalendarPage> {
                 ],
               ),
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          // นำทางไปยัง AddItemPage และรอผลลัพธ์
-          final bool? dataChanged = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const AddItemPage()),
-          );
-          if (dataChanged == true) {
-            _fetch_expiry_data();
-          }
-        },
-        child: const Icon(Icons.add),
-      ),
     );
   }
 
@@ -507,9 +494,9 @@ class _CalendarPageState extends State<CalendarPage> {
                     } catch (e) {}
 
                     return GestureDetector(
-                      onTap: () {
+                      onTap: () async {
                         Navigator.pop(context);
-                        Navigator.push(
+                        final result = await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => ItemDetailPage(
@@ -524,6 +511,9 @@ class _CalendarPageState extends State<CalendarPage> {
                             ),
                           ),
                         );
+                        if (result == true) {
+                          _fetch_expiry_data();
+                        }
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
