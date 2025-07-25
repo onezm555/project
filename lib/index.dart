@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'item_detail_page.dart'; // ตรวจสอบให้แน่ใจว่า import ถูกต้อง
-import 'add_item.dart'; // เพิ่มบรรทัดนี้เพื่อให้สามารถใช้ AddItemPage ได้
 
 class IndexPage extends StatefulWidget {
   const IndexPage({Key? key}) : super(key: key);
@@ -60,7 +59,7 @@ class IndexPageState extends State<IndexPage> {
     if (filters != null && filters.isNotEmpty) {
       filters.forEach((key, value) {
         if (value != null && value.toString().isNotEmpty) {
-          url += '&$key=$value';
+          url += '&$key=${Uri.encodeComponent(value.toString())}';
         }
       });
     }
@@ -233,12 +232,13 @@ class IndexPageState extends State<IndexPage> {
                 'item_id': item['item_id'],
                 'user_id': item['user_id'],
                 'name': item['item_name'],
-                'quantity': item['item_number'],
+                'quantity': item['quantity'] ?? item['item_number'], // ใช้ quantity ก่อน แล้วค่อย fallback เป็น item_number
                 'barcode': item['item_barcode'],
                 'item_notification': item['item_notification'],
                 'unit': item['date_type'] ?? item['unit'],
                 'category': item['type_name'] ?? item['category'],
-                'storage_location': item['area_name'] ?? item['storage_location'],
+                'storage_location': item['storage_location'],
+                'storage_locations': item['storage_locations'], // ส่งข้อมูลละเอียดไปด้วย
                 'item_date': item['item_date'],
                 'item_img': item['item_img_full_url'],
               },
@@ -325,7 +325,7 @@ class IndexPageState extends State<IndexPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'จำนวน: ${item['item_number'] ?? 'N/A'}',
+                              'จำนวน: ${item['quantity'] ?? item['item_number'] ?? 'N/A'}', // ใช้ quantity ก่อน แล้วค่อย fallback
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.grey[600],
@@ -344,7 +344,7 @@ class IndexPageState extends State<IndexPage> {
                         ),
                       ),
                       // ย้ายพื้นที่จัดเก็บ (area_name) ไปด้านขวา
-                      if ((item['storage_location'] ?? '').toString().isNotEmpty)
+                      if ((item['storage_locations'] ?? []).isNotEmpty)
                         Container(
                           margin: const EdgeInsets.only(left: 8, top: 2),
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -357,12 +357,18 @@ class IndexPageState extends State<IndexPage> {
                             ),
                           ),
                           child: Text(
-                            item['storage_location'],
+                            ((item['storage_locations'] as List)
+                              .map((loc) => loc['area_name'] ?? '')
+                              .where((name) => name.toString().isNotEmpty)
+                              .toList())
+                              .join(', '),
                             style: const TextStyle(
                               fontSize: 12,
                               color: Colors.blue,
                               fontWeight: FontWeight.w600,
                             ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
                           ),
                         ),
                     ],

@@ -27,7 +27,6 @@ class _AddItemPageState extends State<AddItemPage> {
   final TextEditingController _name_controller = TextEditingController();
   final TextEditingController _quantity_controller = TextEditingController(text: '1');
   final TextEditingController _barcode_controller = TextEditingController();
-  final TextEditingController _price_controller = TextEditingController();
   final TextEditingController _notification_days_controller = TextEditingController(text: '');
   final GlobalKey<FormState> _form_key = GlobalKey<FormState>();
 
@@ -44,6 +43,12 @@ class _AddItemPageState extends State<AddItemPage> {
     {'area_id': null, 'area_name': 'เพิ่มพื้นที่การเอง'},
   ];
   int? _current_user_id; // สำหรับเก็บ user_id
+  
+  // Variables for multiple storage locations
+  bool _use_multiple_locations = false;
+  bool _enable_multiple_locations_option = false; // เปิดใช้งานตัวเลือกกระจายสินค้า
+  List<Map<String, dynamic>> _item_locations = [];
+  int _remaining_quantity = 0;
 
   // ใช้ URL จาก .env
   final String _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost';
@@ -54,6 +59,11 @@ class _AddItemPageState extends State<AddItemPage> {
     super.initState();
     _initialize_data();
     _notification_days_controller.text = '7';
+    
+    // Add listener to quantity controller
+    _quantity_controller.addListener(() {
+      _check_multiple_locations_availability();
+    });
     // ถ้าเป็นโหมดแก้ไข ให้เติมข้อมูลจาก item_data
     if (widget.is_existing_item && widget.item_data != null) {
       final item = widget.item_data!;
@@ -102,7 +112,15 @@ class _AddItemPageState extends State<AddItemPage> {
           _selected_storage = 'เลือกพื้นที่จัดเก็บ';
         });
       }
+      // Check if multiple locations should be enabled
+      _check_multiple_locations_availability();
     });
+  }
+
+  @override
+  void dispose() {
+    _quantity_controller.removeListener(_check_multiple_locations_availability);
+    super.dispose();
   }
 
   Future<void> _initialize_data() async {
@@ -217,6 +235,124 @@ class _AddItemPageState extends State<AddItemPage> {
 
   String _format_date(DateTime date) {
     return "${date.day}/${date.month}/${date.year + 543}"; // Convert to Buddhist year
+  }
+
+  void _check_multiple_locations_availability() {
+    final quantity = int.tryParse(_quantity_controller.text) ?? 0;
+    setState(() {
+      if (quantity >= 2) {
+        _enable_multiple_locations_option = true;
+        // ถ้าเปิดใช้งานตัวเลือกแล้ว ให้อัปเดต remaining quantity
+        if (_use_multiple_locations) {
+          _update_remaining_quantity();
+        }
+      } else {
+        _enable_multiple_locations_option = false;
+        _use_multiple_locations = false;
+        _item_locations.clear();
+        _remaining_quantity = 0;
+      }
+    });
+  }
+
+  void _update_remaining_quantity() {
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+    final distributedQuantity = _item_locations.fold<int>(
+      0, 
+      (sum, location) => sum + (location['quantity'] as int? ?? 0)
+    );
+    
+    // คำนวณจำนวนที่เหลือ โดยลบจำนวนที่กระจายในหลายพื้นที่
+    // และลบ 1 ชิ้นสำหรับพื้นที่หลักที่เลือกไว้แล้ว (ถ้ามี)
+    int usedInMainLocation = 0;
+    if (_selected_storage != 'เลือกพื้นที่จัดเก็บ') {
+      usedInMainLocation = 1;
+    }
+    
+    setState(() {
+      _remaining_quantity = totalQuantity - distributedQuantity - usedInMainLocation;
+    });
+  }
+
+  void _toggle_multiple_locations(bool value) {
+    setState(() {
+      _use_multiple_locations = value;
+      if (value) {
+        _update_remaining_quantity();
+      } else {
+        _item_locations.clear();
+        _remaining_quantity = 0;
+      }
+    });
+  }
+
+  void _add_storage_location() {
+    if (_remaining_quantity <= 0) {
+      _show_error_message('ไม่มีจำนวนสินค้าเหลือที่จะกระจาย');
+      return;
+    }
+    
+    // Check if there are available storage locations
+    final availableLocations = _storage_locations
+        .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                       loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+        .toList();
+    
+    if (availableLocations.isEmpty) {
+      _show_error_message('ไม่มีพื้นที่จัดเก็บให้เลือก กรุณาเพิ่มพื้นที่จัดเก็บก่อน');
+      return;
+    }
+    
+    // Find first available storage location that's not already selected
+    String defaultArea = '';
+    int? defaultAreaId;
+    
+    for (var loc in availableLocations) {
+      String areaName = loc['area_name'];
+      // Check if this area is already used
+      bool alreadyUsed = _item_locations.any((item) => item['area_name'] == areaName);
+      if (!alreadyUsed) {
+        defaultArea = areaName;
+        defaultAreaId = loc['area_id'];
+        break;
+      }
+    }
+    
+    // If no available area found, use the first valid area
+    if (defaultArea.isEmpty && availableLocations.isNotEmpty) {
+      defaultArea = availableLocations.first['area_name'];
+      defaultAreaId = availableLocations.first['area_id'];
+    }
+    
+    setState(() {
+      _item_locations.add({
+        'area_id': defaultAreaId,
+        'area_name': defaultArea,
+        'quantity': 1,
+      });
+      _update_remaining_quantity();
+    });
+  }
+
+  void _remove_storage_location(int index) {
+    setState(() {
+      _item_locations.removeAt(index);
+      _update_remaining_quantity();
+    });
+  }
+
+  void _update_location_quantity(int index, int quantity) {
+    setState(() {
+      _item_locations[index]['quantity'] = quantity;
+      _update_remaining_quantity();
+    });
+  }
+
+  void _update_location_area(int index, String areaName, int? areaId) {
+    setState(() {
+      _item_locations[index]['area_name'] = areaName;
+      _item_locations[index]['area_id'] = areaId;
+    });
   }
 
   Future<void> _pick_image({required ImageSource source}) async {
@@ -416,12 +552,12 @@ class _AddItemPageState extends State<AddItemPage> {
                 Navigator.of(context).pop();
               },
             ),
-            TextButton(
-              child: const Text('ลบ'),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              onPressed: () async {
-                Navigator.of(context).pop(); // Close the dialog
-                await _delete_storage_location(area_name);
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('ลบ', style: TextStyle(color: Colors.white)),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _delete_storage_location(area_name);
               },
             ),
           ],
@@ -443,7 +579,7 @@ class _AddItemPageState extends State<AddItemPage> {
 
     try {
       final response = await http.post(
-        Uri.parse('$_api_base_url/delete_area.php'), // NEW PHP file
+        Uri.parse('$_api_base_url/delete_area.php'),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -457,8 +593,7 @@ class _AddItemPageState extends State<AddItemPage> {
         final response_data = json.decode(utf8.decode(response.bodyBytes));
         if (response_data['status'] == 'success') {
           _show_success_message('ลบพื้นที่จัดเก็บสำเร็จแล้ว!');
-          await _fetch_storage_locations(); // Reload locations after deletion
-          // Reset selected storage if the deleted one was selected
+          await _fetch_storage_locations();
           if (_selected_storage == area_name) {
             setState(() {
               _selected_storage = 'เลือกพื้นที่จัดเก็บ';
@@ -487,10 +622,44 @@ class _AddItemPageState extends State<AddItemPage> {
         _show_error_message('กรุณาเลือกประเภทสินค้า');
         return false;
       }
-      if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
-        _show_error_message('กรุณาเลือกพื้นที่จัดเก็บ');
-        return false;
+      
+      if (_use_multiple_locations && _enable_multiple_locations_option) {
+        // ตรวจสอบว่าเลือกพื้นที่หลักแล้วหรือไม่
+        if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
+          _show_error_message('กรุณาเลือกพื้นที่จัดเก็บหลักก่อน');
+          return false;
+        }
+        
+        // ถ้ามี remaining quantity > 0 แต่ไม่มี additional locations
+        if (_remaining_quantity > 0 && _item_locations.isEmpty) {
+          _show_error_message('กรุณาเพิ่มพื้นที่เพิ่มเติมหรือลดจำนวนสินค้า (เหลือ $_remaining_quantity ชิ้น)');
+          return false;
+        }
+        
+        if (_remaining_quantity > 0 && _item_locations.isNotEmpty) {
+          _show_error_message('กรุณากระจายสินค้าให้ครบทุกชิ้น (เหลือ $_remaining_quantity ชิ้น)');
+          return false;
+        }
+        
+        // Check if all additional locations have valid area selected
+        for (var location in _item_locations) {
+          if (location['area_name'] == 'เลือกพื้นที่จัดเก็บ' || 
+              location['area_id'] == null || 
+              location['area_name'] == null || 
+              location['area_name'].toString().isEmpty) {
+            _show_error_message('กรุณาเลือกพื้นที่จัดเก็บให้ครบทุกรายการ');
+            return false;
+          }
+        }
+        
+      } else {
+        // Validate single location (ไม่ใช้ multiple locations หรือมีสินค้าน้อยกว่า 2 ชิ้น)
+        if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
+          _show_error_message('กรุณาเลือกพื้นที่จัดเก็บ');
+          return false;
+        }
       }
+      
       return true;
     }
     return false;
@@ -542,19 +711,34 @@ class _AddItemPageState extends State<AddItemPage> {
       request.fields['barcode'] = _barcode_controller.text;
       request.fields['user_id'] = _current_user_id.toString();
       request.fields['category'] = _selected_category;
-      request.fields['storage_location'] = _selected_storage;
       request.fields['date_type'] = _selected_unit;
 
-      // หา area_id จากชื่อพื้นที่จัดเก็บที่เลือก
-      int? areaId;
-      for (var loc in _storage_locations) {
-        if (loc['area_name'] == _selected_storage) {
-          areaId = loc['area_id'] is int ? loc['area_id'] : int.tryParse(loc['area_id'].toString());
-          break;
+      // Handle multiple locations or single location
+      if (_use_multiple_locations && _enable_multiple_locations_option && _item_locations.isNotEmpty) {
+        // Send multiple locations data
+        request.fields['use_multiple_locations'] = 'true';
+        request.fields['item_locations'] = json.encode(_item_locations);
+        
+        // For backward compatibility, use the first location as primary
+        request.fields['storage_location'] = _item_locations[0]['area_name'];
+        if (_item_locations[0]['area_id'] != null) {
+          request.fields['storage_id'] = _item_locations[0]['area_id'].toString();
         }
-      }
-      if (areaId != null) {
-        request.fields['storage_id'] = areaId.toString();
+      } else {
+        // Single location (original behavior)
+        request.fields['storage_location'] = _selected_storage;
+        
+        // หา area_id จากชื่อพื้นที่จัดเก็บที่เลือก
+        int? areaId;
+        for (var loc in _storage_locations) {
+          if (loc['area_name'] == _selected_storage) {
+            areaId = loc['area_id'] is int ? loc['area_id'] : int.tryParse(loc['area_id'].toString());
+            break;
+          }
+        }
+        if (areaId != null) {
+          request.fields['storage_id'] = areaId.toString();
+        }
       }
 
       // อัปโหลดรูปภาพ (key ต้องเป็น 'item_img' เพื่อรองรับแก้ไข)
@@ -936,6 +1120,10 @@ class _AddItemPageState extends State<AddItemPage> {
                           } else {
                             setState(() {
                               _selected_storage = newValue!;
+                              // อัปเดต remaining quantity เมื่อเปลี่ยนพื้นที่หลัก
+                              if (_use_multiple_locations) {
+                                _update_remaining_quantity();
+                              }
                             });
                           }
                         },
@@ -946,6 +1134,223 @@ class _AddItemPageState extends State<AddItemPage> {
                           return null;
                         },
                       ),
+                      
+                      // Multiple locations option toggle
+                      if (_enable_multiple_locations_option) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue[200]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.blue[600], size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'ต้องการเพิ่มพื้นที่จัดเก็บมากกว่าหนึ่งแห่งหรือไม่?',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue[800],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'เลือก "ใช่" หากต้องการแยกจำนวนสินค้าไปเก็บในพื้นที่หลายแห่ง',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blue[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Switch(
+                                value: _use_multiple_locations,
+                                onChanged: _toggle_multiple_locations,
+                                activeColor: const Color(0xFF4A90E2),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      
+                      // Multiple storage locations section
+                      if (_use_multiple_locations && _enable_multiple_locations_option) ...[
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _build_section_title('กระจายสินค้าไปพื้นที่เพิ่มเติม'),
+                            Text(
+                              'เหลือ: $_remaining_quantity ชิ้น',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: _remaining_quantity > 0 ? Colors.orange : Colors.green,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // List of distributed locations
+                        ...List.generate(_item_locations.length, (index) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey[300]!),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.grey[50],
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 3,
+                                      child: DropdownButtonFormField<String>(
+                                        value: _item_locations[index]['area_name'],
+                                        decoration: InputDecoration(
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(6),
+                                            borderSide: BorderSide(color: Colors.grey[300]!),
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(6),
+                                            borderSide: BorderSide(color: Colors.grey[300]!),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(6),
+                                            borderSide: const BorderSide(color: Color(0xFF4A90E2)),
+                                          ),
+                                          filled: true,
+                                          fillColor: Colors.white,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        ),
+                                        items: _storage_locations
+                                            .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                            .map((loc) {
+                                          return DropdownMenuItem<String>(
+                                            value: loc['area_name'],
+                                            child: Text(
+                                              loc['area_name'],
+                                              style: const TextStyle(fontSize: 14),
+                                            ),
+                                          );
+                                        }).toList(),
+                                        onChanged: (newValue) {
+                                          if (newValue != null) {
+                                            final selectedLocation = _storage_locations.firstWhere(
+                                              (loc) => loc['area_name'] == newValue
+                                            );
+                                            _update_location_area(index, newValue, selectedLocation['area_id']);
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 28,
+                                            height: 28,
+                                            decoration: BoxDecoration(
+                                              border: Border.all(color: Colors.grey[300]!),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: IconButton(
+                                              onPressed: () {
+                                                final currentQty = _item_locations[index]['quantity'] as int;
+                                                if (currentQty > 1) {
+                                                  _update_location_quantity(index, currentQty - 1);
+                                                }
+                                              },
+                                              icon: const Icon(Icons.remove, size: 12),
+                                              padding: EdgeInsets.zero,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Container(
+                                            width: 40,
+                                            height: 28,
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              border: Border.all(color: Colors.grey[300]!),
+                                              borderRadius: BorderRadius.circular(4),
+                                              color: Colors.white,
+                                            ),
+                                            child: Text(
+                                              '${_item_locations[index]['quantity']}',
+                                              style: const TextStyle(fontSize: 12),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Container(
+                                            width: 28,
+                                            height: 28,
+                                            decoration: BoxDecoration(
+                                              border: Border.all(color: Colors.grey[300]!),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: IconButton(
+                                              onPressed: () {
+                                                final currentQty = _item_locations[index]['quantity'] as int;
+                                                if (currentQty < _remaining_quantity + currentQty) {
+                                                  _update_location_quantity(index, currentQty + 1);
+                                                }
+                                              },
+                                              icon: const Icon(Icons.add, size: 12),
+                                              padding: EdgeInsets.zero,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      onPressed: () => _remove_storage_location(index),
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                        // Add more location button
+                        if (_remaining_quantity > 0)
+                          Container(
+                            width: double.infinity,
+                            height: 40,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: OutlinedButton.icon(
+                              onPressed: _add_storage_location,
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('เพิ่มพื้นที่เพิ่มเติม'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF4A90E2),
+                                side: const BorderSide(color: Color(0xFF4A90E2)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                      
                       const SizedBox(height: 24),
                       _build_section_title('ตั้งการแจ้งเตือน'),
                       const SizedBox(height: 12),

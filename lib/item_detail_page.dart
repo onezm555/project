@@ -163,6 +163,9 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   }
 
   Future<void> _show_discard_options_dialog() async {
+    // ตรวจสอบจำนวนสินค้าปัจจุบัน
+    int currentQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+    
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -208,7 +211,11 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      _handle_used_up_item();
+                      if (currentQuantity > 1) {
+                        _show_quantity_selection_dialog('used');
+                      } else {
+                        _handle_used_up_item();
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
@@ -217,9 +224,9 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 15),
                     ),
-                    child: const Text(
-                      'ใช้ของหมด',
-                      style: TextStyle(
+                    child: Text(
+                      currentQuantity > 1 ? 'ใช้ของหมด (เลือกจำนวน)' : 'ใช้ของหมด',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
@@ -236,7 +243,11 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      _handle_discard_expired_item();
+                      if (currentQuantity > 1) {
+                        _show_quantity_selection_dialog('expired');
+                      } else {
+                        _handle_discard_expired_item();
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
@@ -245,9 +256,9 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 15),
                     ),
-                    child: const Text(
-                      'ทิ้ง/หมดอายุ',
-                      style: TextStyle(
+                    child: Text(
+                      currentQuantity > 1 ? 'ทิ้ง/หมดอายุ (เลือกจำนวน)' : 'ทิ้ง/หมดอายุ',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
@@ -261,6 +272,256 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         );
       },
     );
+  }
+
+  Future<void> _show_quantity_selection_dialog(String action) async {
+    int currentQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+    int selectedQuantity = 1;
+    
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ปุ่มปิด X ด้านบน
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close, color: Colors.grey),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // ข้อความหัวข้อ
+                    Text(
+                      action == 'used' ? 'เลือกจำนวนที่ใช้หมด' : 'เลือกจำนวนที่ทิ้ง/หมดอายุ',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // แสดงจำนวนปัจจุบัน
+                    Text(
+                      'จำนวนปัจจุบัน: $currentQuantity ชิ้น',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // เลือกจำนวน
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // ปุ่มลด
+                        Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: IconButton(
+                            onPressed: selectedQuantity > 1 
+                                ? () => setState(() => selectedQuantity--)
+                                : null,
+                            icon: const Icon(Icons.remove),
+                            iconSize: 20,
+                          ),
+                        ),
+                        
+                        // แสดงจำนวน
+                        Container(
+                          width: 80,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            selectedQuantity.toString(),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        
+                        // ปุ่มเพิ่ม
+                        Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: IconButton(
+                            onPressed: selectedQuantity < currentQuantity 
+                                ? () => setState(() => selectedQuantity++)
+                                : null,
+                            icon: const Icon(Icons.add),
+                            iconSize: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // ปุ่มยืนยัน
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          if (action == 'used') {
+                            _handle_used_up_item_with_quantity(selectedQuantity);
+                          } else {
+                            _handle_discard_expired_item_with_quantity(selectedQuantity);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: action == 'used' ? Colors.blue : Colors.orange,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                        ),
+                        child: Text(
+                          'ยืนยัน ${action == 'used' ? 'ใช้หมด' : 'ทิ้ง/หมดอายุ'} $selectedQuantity ชิ้น',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _handle_used_up_item_with_quantity(int quantity) async {
+    // จัดการเมื่อเลือก "ใช้ของหมด" พร้อมจำนวน
+    await _update_item_quantity('used', quantity, 'ใช้ของหมดเรียบร้อย $quantity ชิ้น');
+  }
+
+  Future<void> _handle_discard_expired_item_with_quantity(int quantity) async {
+    // จัดการเมื่อเลือก "ทิ้ง/หมดอายุ" พร้อมจำนวน
+    await _update_item_quantity('expired', quantity, 'ทิ้ง/หมดอายุเรียบร้อย $quantity ชิ้น');
+  }
+
+  Future<void> _update_item_quantity(String type, int quantity, String successMessage) async {
+    final String url = '$_apiBaseUrl/update_item_status.php'; // ใช้ API เดิม
+    
+    // รองรับทั้ง item_id และ id
+    int? itemId = widget.item_data['item_id'];
+    if (itemId == null && widget.item_data['id'] != null) {
+      itemId = widget.item_data['id'] is int
+          ? widget.item_data['id']
+          : int.tryParse(widget.item_data['id'].toString());
+    }
+
+    int? userId = widget.item_data['user_id'];
+    if (userId == null) {
+      // ถ้าไม่มี user_id ใน item_data ให้ดึงจาก SharedPreferences
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        userId = prefs.getInt('user_id');
+      } catch (e) {
+        debugPrint('Error loading user_id from SharedPreferences: $e');
+      }
+    }
+
+    if (itemId == null || userId == null) {
+      _show_snackbar('Error: ไม่พบข้อมูล Item ID หรือ User ID', Colors.red);
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        body: {
+          'item_id': itemId.toString(),
+          'user_id': userId.toString(),
+          'quantity_type': type, // 'used' หรือ 'expired'
+          'quantity': quantity.toString(),
+        },
+      );
+
+      final Map<String, dynamic> responseData = json.decode(response.body);
+
+      if (response.statusCode == 200 && responseData['status'] == 'success') {
+        _show_snackbar(successMessage, Colors.green);
+        
+        // อัพเดตข้อมูลใน UI ใช้ข้อมูลจาก API response
+        setState(() {
+          if (responseData['data'] != null) {
+            // ใช้ข้อมูลจาก API response
+            int newRemainingQuantity = responseData['data']['remaining_quantity'] ?? 0;
+            String newStatus = responseData['data']['new_status'] ?? 'active';
+            
+            // อัพเดตข้อมูลในหน้าปัจจุบัน
+            widget.item_data['quantity'] = newRemainingQuantity;
+            widget.item_data['remaining_quantity'] = newRemainingQuantity;
+            _quantity_controller.text = newRemainingQuantity.toString();
+            
+            // อัพเดตสถานะถ้าจำเป็น
+            if (newRemainingQuantity <= 0) {
+              widget.item_data['item_status'] = newStatus;
+            }
+          } else {
+            // fallback ถ้าไม่มี data ใน response
+            int currentQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+            int newQuantity = currentQuantity - quantity;
+            
+            if (newQuantity <= 0) {
+              widget.item_data['item_status'] = type == 'used' ? 'disposed' : 'expired';
+              widget.item_data['quantity'] = 0;
+              widget.item_data['remaining_quantity'] = 0;
+              _quantity_controller.text = '0';
+            } else {
+              widget.item_data['quantity'] = newQuantity;
+              widget.item_data['remaining_quantity'] = newQuantity;
+              _quantity_controller.text = newQuantity.toString();
+            }
+          }
+        });
+        
+        // กลับไปหน้าก่อนหน้าพร้อมส่งสัญญาณว่ามีการเปลี่ยนแปลง
+        Navigator.of(context).pop(true);
+      } else {
+        _show_snackbar(responseData['message'] ?? 'ไม่สามารถอัพเดตจำนวนได้', Colors.red);
+      }
+    } catch (e) {
+      debugPrint('Error updating item quantity: $e');
+      _show_snackbar('เกิดข้อผิดพลาด: ${e.toString()}', Colors.red);
+    }
   }
 
   Future<void> _handle_used_up_item() async {
@@ -510,10 +771,38 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
               const SizedBox(height: 16),
 
               // พื้นที่จัดเก็บ
-              _build_text_display(
-                controller: TextEditingController(text: _selected_storage),
-                hint: 'พื้นที่จัดเก็บ',
-              ),
+
+              // แสดงพื้นที่จัดเก็บทั้งหมด (ถ้ามีหลายพื้นที่)
+              if ((widget.item_data['storage_locations'] ?? []).isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _build_section_title('พื้นที่จัดเก็บทั้งหมด'),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Text(
+                        (widget.item_data['storage_locations'] as List)
+                          .map((loc) => loc['area_name'] ?? '')
+                          .where((name) => name.toString().isNotEmpty)
+                          .toList()
+                          .join(', '),
+                        style: const TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                _build_text_display(
+                  controller: TextEditingController(text: _selected_storage),
+                  hint: 'พื้นที่จัดเก็บ',
+                ),
 
               const SizedBox(height: 24),
 
