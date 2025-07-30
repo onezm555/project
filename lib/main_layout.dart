@@ -215,7 +215,7 @@ class _MainLayoutState extends State<MainLayout> {
                   ),
                 ),
                 child: const Text(
-                  'เพิ่มสินค้าที่มีอยู่',
+                  'เพิ่มสินค้าที่มีอยู่(บาร์โค้ด)',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
@@ -243,18 +243,184 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
-  void _add_existing_item() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const AddItemPage(is_existing_item: true),
-      ),
-    ).then((result) {
-      if (result == true) {
-        // Refresh data on IndexPage after adding item
-        _indexPageKey.currentState?.fetchItemsData();
+  void _add_existing_item() async {
+    try {
+      // เปิด barcode scanner ก่อน
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const BarcodeScannerPage(),
+        ),
+      );
+      
+      // ตรวจสอบว่าผลลัพธ์ไม่ใช่ null, ไม่ใช่ -1 (cancel), และไม่ใช่ค่าว่าง
+      if (result != null && 
+          result is String && 
+          result.isNotEmpty && 
+          result != '-1') {
+        
+        // ค้นหาข้อมูลสินค้าในฐานข้อมูลด้วยบาร์โค้ด
+        await _search_existing_item_by_barcode(result);
       }
-    });
+      // ถ้าเป็น -1 หรือค่าอื่นที่ไม่ต้องการ ไม่ต้องทำอะไร
+    } catch (e) {
+      print('Error in _add_existing_item: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('เกิดข้อผิดพลาดในการสแกนบาร์โค้ด'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _search_existing_item_by_barcode(String barcode) async {
+    try {
+      // แสดง loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // ดึง user_id จาก SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final int? userId = prefs.getInt('user_id');
+      
+      if (userId == null) {
+        Navigator.pop(context); // ปิด loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ไม่พบข้อมูลผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // เรียก API เพื่อค้นหาสินค้าด้วยบาร์โค้ด
+      final response = await http.get(
+        Uri.parse('$_api_base_url/search_item_by_barcode.php?user_id=$userId&barcode=${Uri.encodeComponent(barcode)}')
+      );
+
+      Navigator.pop(context); // ปิด loading
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // เพิ่ม debug เพื่อดูข้อมูลที่ได้จาก API
+        print('API Response: $data');
+        
+        if (data['success'] == true && data['data'] != null) {
+          // พบข้อมูลสินค้า - นำไปยังหน้าเพิ่มสินค้าพร้อมข้อมูลเดิม
+          final itemData = data['data'];
+          
+          // เพิ่ม debug เพื่อดูข้อมูลสินค้า
+          print('Item Data: $itemData');
+          
+          // แสดงข้อความแจ้งเตือนก่อน
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('พบข้อมูลสินค้า: ${itemData['item_name']}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          
+          final Map<String, dynamic> itemDataToSend = {
+            'name': itemData['item_name'] ?? '',
+            'item_name': itemData['item_name'] ?? '', // เพิ่มทั้งสองชื่อ field
+            'category': itemData['category'] ?? '',
+            'type_name': itemData['category'] ?? '', // เพิ่มทั้งสองชื่อ field
+            'storage_location': itemData['storage_location'] ?? '',
+            'area_name': itemData['storage_location'] ?? '', // เพิ่มทั้งสองชื่อ field
+            'barcode': itemData['item_barcode'] ?? barcode,
+            'unit': itemData['date_type'] == 'BBF' ? 'ควรบริโภคก่อน(BBF)' : 'วันหมดอายุ(EXP)',
+            'date_type': itemData['date_type'] == 'BBF' ? 'ควรบริโภคก่อน(BBF)' : 'วันหมดอายุ(EXP)',
+          };
+          
+          // เพิ่ม debug เพื่อดูข้อมูลที่จะส่งไป
+          print('Data to send to AddItemPage: $itemDataToSend');
+          
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AddItemPage(
+                is_existing_item: true, // เปลี่ยนเป็น true เพื่อให้เติมข้อมูลเดิม
+                item_data: itemDataToSend,
+              ),
+            ),
+          ).then((result) {
+            if (result == true) {
+              // Refresh data on IndexPage after adding item
+              _indexPageKey.currentState?.fetchItemsData();
+            }
+          });
+        } else {
+          // ไม่พบข้อมูลสินค้า - ให้ผู้ใช้เพิ่มใหม่
+          _show_item_not_found_dialog(barcode);
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการค้นหาข้อมูล'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      Navigator.pop(context); // ปิด loading (ถ้ายังเปิดอยู่)
+      print('Error searching item by barcode: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('เกิดข้อผิดพลาดในการเชื่อมต่อ'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _show_item_not_found_dialog(String barcode) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ไม่พบข้อมูลสินค้า'),
+        content: Text('ไม่พบสินค้าที่มีรหัสบาร์โค้ด: $barcode\nคุณต้องการเพิ่มสินค้าใหม่หรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ยกเลิก'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // เพิ่มสินค้าใหม่พร้อมรหัสบาร์โค้ด
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AddItemPage(
+                    is_existing_item: false,
+                    item_data: {
+                      'barcode': barcode,
+                    },
+                  ),
+                ),
+              ).then((result) {
+                if (result == true) {
+                  _indexPageKey.currentState?.fetchItemsData();
+                }
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4A90E2),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('เพิ่มใหม่'),
+          ),
+        ],
+      ),
+    );
   }
 
   // Complete Filter Modal logic

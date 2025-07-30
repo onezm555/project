@@ -21,10 +21,10 @@ class _StatisticsPageState extends State<StatisticsPage> {
   int _totalItems = 0;
   int _expiredItems = 0;
   int _disposedItems = 0;
-  int _activeItems = 0;
   double _expiredChangePercent = 0.0;
   
   List<dynamic> _categoryStats = [];
+  List<dynamic> _productStats = []; // เพิ่มสำหรับสินค้าแยกตามประเภทเฉพาะ
 
   @override
   void initState() {
@@ -143,9 +143,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
               _totalItems = _parseToInt(data['data']['total_items']);
               _expiredItems = _parseToInt(data['data']['expired_items']);
               _disposedItems = _parseToInt(data['data']['disposed_items']);
-              _activeItems = _parseToInt(data['data']['active_items']);
               _expiredChangePercent = _parseToDouble(data['data']['expired_change_percent']);
               _categoryStats = data['data']['category_breakdown'] ?? [];
+              _productStats = data['data']['product_breakdown'] ?? [];
               _isLoading = false;
             });
           } else {
@@ -334,7 +334,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   List<PieChartSectionData> _getPieChartSections() {
-    if (_totalItems == 0) return [];
+    int displayTotal = _expiredItems + _disposedItems;
+    if (displayTotal == 0) return [];
     
     List<PieChartSectionData> sections = [];
     
@@ -343,7 +344,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
       sections.add(PieChartSectionData(
         color: const Color(0xFF8B5CF6), // สีม่วง
         value: _expiredItems.toDouble(),
-        title: '${((_expiredItems / _totalItems) * 100).toStringAsFixed(1)}%',
+        title: '${((_expiredItems / displayTotal) * 100).toStringAsFixed(1)}%',
         radius: 60,
         titleStyle: const TextStyle(
           fontSize: 12,
@@ -358,22 +359,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
       sections.add(PieChartSectionData(
         color: const Color(0xFFEF4444), // สีแดง
         value: _disposedItems.toDouble(),
-        title: '${((_disposedItems / _totalItems) * 100).toStringAsFixed(1)}%',
-        radius: 60,
-        titleStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ));
-    }
-    
-    // เพิ่มส่วนสำหรับ active items
-    if (_activeItems > 0) {
-      sections.add(PieChartSectionData(
-        color: const Color(0xFF10B981), // สีเขียว
-        value: _activeItems.toDouble(),
-        title: '${((_activeItems / _totalItems) * 100).toStringAsFixed(1)}%',
+        title: '${((_disposedItems / displayTotal) * 100).toStringAsFixed(1)}%',
         radius: 60,
         titleStyle: const TextStyle(
           fontSize: 12,
@@ -573,28 +559,20 @@ class _StatisticsPageState extends State<StatisticsPage> {
                               Colors.blue,
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 16),
                           Expanded(
                             child: _buildStatCard(
-                              'ใช้หมด',
+                              'ใช้แล้ว',
                               _expiredItems.toString(),
                               Colors.purple,
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 16),
                           Expanded(
                             child: _buildStatCard(
                               'หมดอายุ',
                               _disposedItems.toString(),
                               Colors.red,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildStatCard(
-                              'ปกติ',
-                              _activeItems.toString(),
-                              Colors.green,
                             ),
                           ),
                         ],
@@ -638,7 +616,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       const SizedBox(height: 24),
                       
                       // Pie Chart
-                      if (_totalItems > 0)
+                      if ((_expiredItems + _disposedItems) > 0)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(20),
@@ -669,9 +647,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                 children: [
-                                  _buildLegendItem('ใช้หมด', const Color(0xFF8B5CF6)),
+                                  _buildLegendItem('ใช้แล้ว', const Color(0xFF8B5CF6)),
                                   _buildLegendItem('หมดอายุ', const Color(0xFFEF4444)),
-                                  _buildLegendItem('ปกติ', const Color(0xFF10B981)),
                                 ],
                               ),
                             ],
@@ -704,9 +681,50 @@ class _StatisticsPageState extends State<StatisticsPage> {
                             ],
                           ),
                           child: Column(
-                            children: _categoryStats.map((category) => 
-                              _buildCategoryItem(category)
-                            ).toList(),
+                            children: [
+                              const SizedBox(height: 8),
+                              ..._categoryStats.map((category) => 
+                                _buildCategoryItem(category)
+                              ).toList(),
+                              const SizedBox(height: 8),
+                            ],
+                          ),
+                        ),
+                      ],
+                      
+                      const SizedBox(height: 24),
+                      
+                      // Product breakdown (สินค้าแยกตามประเภทเฉพาะ)
+                      if (_productStats.isNotEmpty) ...[
+                        const Text(
+                          'สถิติตามประเภทสินค้า',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 8),
+                              ..._productStats.map((product) => 
+                                _buildProductItem(product)
+                              ).toList(),
+                              const SizedBox(height: 8),
+                            ],
                           ),
                         ),
                       ],
@@ -775,31 +793,208 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   Widget _buildCategoryItem(dynamic category) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            category['category']?.toString() ?? 'ไม่ระบุหมวดหมู่',
-            style: const TextStyle(fontSize: 16),
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.orange[400],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    category['category']?.toString() ?? 'ไม่ระบุหมวดหมู่',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           Row(
             children: [
-              Text(
-                'ใช้หมด: ${_parseToInt(category['expired_count'])}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.purple[600],
-                ),
+              Column(
+                children: [
+                  Text(
+                    'ใช้หมด',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.purple[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.purple[100],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.purple[200]!),
+                    ),
+                    child: Text(
+                      '${_parseToInt(category['expired_count'])}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.purple[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(width: 16),
-              Text(
-                'หมดอายุ: ${_parseToInt(category['disposed_count'])}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.red[600],
+              Column(
+                children: [
+                  Text(
+                    'หมดอายุ',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.red[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.red[100],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.red[200]!),
+                    ),
+                    child: Text(
+                      '${_parseToInt(category['disposed_count'])}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.red[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductItem(dynamic product) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.blue[400],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    product['item_category']?.toString() ?? 'ไม่ระบุประเภท',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              Column(
+                children: [
+                  Text(
+                    'ใช้หมด',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.purple[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.purple[100],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.purple[200]!),
+                    ),
+                    child: Text(
+                      '${_parseToInt(product['expired_count'])}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.purple[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              Column(
+                children: [
+                  Text(
+                    'หมดอายุ',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.red[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.red[100],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.red[200]!),
+                    ),
+                    child: Text(
+                      '${_parseToInt(product['disposed_count'])}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.red[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

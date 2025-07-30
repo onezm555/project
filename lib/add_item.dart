@@ -37,7 +37,7 @@ class _AddItemPageState extends State<AddItemPage> {
   XFile? _picked_image;
   bool _is_loading = false;
   List<String> _units = ['วันหมดอายุ(EXP)', 'ควรบริโภคก่อน(BBF)'];
-  List<String> _categories = ['เลือกประเภท', 'เพิ่มประเภทสินค้า'];
+  List<String> _categories = ['เลือกประเภท'];
   List<Map<String, dynamic>> _storage_locations = [
     {'area_id': null, 'area_name': 'เลือกพื้นที่จัดเก็บ'},
     {'area_id': null, 'area_name': 'เพิ่มพื้นที่การเอง'},
@@ -66,15 +66,20 @@ class _AddItemPageState extends State<AddItemPage> {
     });
     // ถ้าเป็นโหมดแก้ไข ให้เติมข้อมูลจาก item_data
     if (widget.is_existing_item && widget.item_data != null) {
+      print('DEBUG: Populating form with item_data: ${widget.item_data}');
       final item = widget.item_data!;
-      _name_controller.text = item['name'] ?? '';
+      
+      _name_controller.text = item['name'] ?? item['item_name'] ?? '';
       _quantity_controller.text = item['quantity']?.toString() ?? '1';
       _barcode_controller.text = item['barcode'] ?? '';
       _notification_days_controller.text = (item['item_notification'] != null && item['item_notification'].toString().trim().isNotEmpty)
           ? item['item_notification'].toString()
           : '7';
+      
       // ตรวจสอบและแปลงค่า unit/date_type ให้ตรงกับ dropdown
       String rawUnit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
+      print('DEBUG: Raw unit from item_data: $rawUnit');
+      
       if (rawUnit == 'EXP' || rawUnit == 'วันหมดอายุ(EXP)') {
         _selected_unit = 'วันหมดอายุ(EXP)';
       } else if (rawUnit == 'BBF' || rawUnit == 'ควรบริโภคก่อน(BBF)') {
@@ -83,8 +88,10 @@ class _AddItemPageState extends State<AddItemPage> {
         // ถ้าไม่ตรง ให้ใช้ default
         _selected_unit = _units.contains(rawUnit) ? rawUnit : 'วันหมดอายุ(EXP)';
       }
-      _selected_category = item['category'] ?? 'เลือกประเภท';
-      _selected_storage = item['storage_location'] ?? 'เลือกพื้นที่จัดเก็บ';
+      
+      _selected_category = item['category'] ?? item['type_name'] ?? 'เลือกประเภท';
+      _selected_storage = item['storage_location'] ?? item['area_name'] ?? 'เลือกพื้นที่จัดเก็บ';
+      
       if (item['item_date'] != null) {
         try {
           _selected_date = DateTime.parse(item['item_date']);
@@ -92,24 +99,15 @@ class _AddItemPageState extends State<AddItemPage> {
           _selected_date = DateTime.now().add(const Duration(days: 7));
         }
       }
+      
+      print('DEBUG: Form populated - name: ${_name_controller.text}, category: $_selected_category, storage: $_selected_storage, unit: $_selected_unit');
       // ไม่เติมรูปภาพเดิม (_picked_image) เพราะต้องเลือกใหม่
     }
-    // ป้องกัน error dropdown: ถ้า value ไม่อยู่ใน list ให้เซ็ตเป็น default
+    // ป้องกัน error dropdown: ตรวจสอบ unit เท่านั้นตอนนี้
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_units.contains(_selected_unit)) {
         setState(() {
           _selected_unit = 'วันหมดอายุ(EXP)';
-        });
-      }
-      if (!_categories.contains(_selected_category)) {
-        setState(() {
-          _selected_category = 'เลือกประเภท';
-        });
-      }
-      final storageNames = _storage_locations.map((e) => e['area_name'] as String).toList();
-      if (!storageNames.contains(_selected_storage)) {
-        setState(() {
-          _selected_storage = 'เลือกพื้นที่จัดเก็บ';
         });
       }
       // Check if multiple locations should be enabled
@@ -153,18 +151,22 @@ class _AddItemPageState extends State<AddItemPage> {
       final response = await http.get(Uri.parse('$_api_base_url/get_types.php?user_id=$_current_user_id'));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
-        final loadedCategories = ['เลือกประเภท'] + data.map((e) => e['type_name'] as String).toList() + ['เพิ่มประเภทสินค้า'];
+        final loadedCategories = ['เลือกประเภท'] + data.map((e) => e['type_name'] as String).toList();
         setState(() {
           _categories = loadedCategories;
           // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิม ให้เลือก category ตามข้อมูลเดิม
           if (widget.is_existing_item && widget.item_data != null) {
-            final itemCat = widget.item_data!['category'] ?? '';
+            final itemCat = widget.item_data!['category'] ?? widget.item_data!['type_name'] ?? '';
+            print('DEBUG: Setting category from item_data: $itemCat');
             if (_categories.contains(itemCat)) {
               _selected_category = itemCat;
+              print('DEBUG: Category set to: $_selected_category');
             } else {
               _selected_category = 'เลือกประเภท';
+              print('DEBUG: Category not found in list, using default');
             }
           } else {
+            // สำหรับโหมดเพิ่มใหม่ ถ้า _selected_category ไม่อยู่ใน list ให้เซ็ตเป็น default
             if (!_categories.contains(_selected_category)) {
               _selected_category = 'เลือกประเภท';
             }
@@ -199,11 +201,14 @@ class _AddItemPageState extends State<AddItemPage> {
           final storageNames = _storage_locations.map((e) => e['area_name'] as String).toList();
           // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิม ให้เลือก storage ตามข้อมูลเดิม
           if (widget.is_existing_item && widget.item_data != null) {
-            final itemStorage = widget.item_data!['storage_location'] ?? '';
+            final itemStorage = widget.item_data!['storage_location'] ?? widget.item_data!['area_name'] ?? '';
+            print('DEBUG: Setting storage from item_data: $itemStorage');
             if (storageNames.contains(itemStorage)) {
               _selected_storage = itemStorage;
+              print('DEBUG: Storage set to: $_selected_storage');
             } else {
               _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+              print('DEBUG: Storage not found in list, using default');
             }
           } else {
             if (!storageNames.contains(_selected_storage)) {
@@ -235,6 +240,18 @@ class _AddItemPageState extends State<AddItemPage> {
 
   String _format_date(DateTime date) {
     return "${date.day}/${date.month}/${date.year + 543}"; // Convert to Buddhist year
+  }
+
+  bool _isDataInitialized() {
+    // ตรวจสอบว่าข้อมูลได้โหลดเสร็จแล้วและไม่มีปัญหากับ dropdown values
+    if (widget.is_existing_item && widget.item_data != null) {
+      final storageNames = _storage_locations.map((e) => e['area_name'] as String).toList();
+      return _categories.length > 2 && // มีมากกว่า default values
+             _storage_locations.length > 2 && // มีมากกว่า default values
+             _categories.contains(_selected_category) &&
+             storageNames.contains(_selected_storage);
+    }
+    return true; // สำหรับโหมดเพิ่มใหม่
   }
 
   void _check_multiple_locations_availability() {
@@ -362,93 +379,6 @@ class _AddItemPageState extends State<AddItemPage> {
       _picked_image = image;
     });
   }
-
-  Future<void> _show_add_category_dialog() async {
-    String? new_category_name;
-    await showDialog<String>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('เพิ่มประเภทสินค้าใหม่'),
-          content: TextField(
-            onChanged: (value) {
-              new_category_name = value;
-            },
-            decoration: const InputDecoration(hintText: 'ชื่อประเภทสินค้า'),
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('ยกเลิก'),
-              onPressed: () {
-                Navigator.pop(context);
-              },
-            ),
-            ElevatedButton(
-              child: const Text('เพิ่ม'),
-              onPressed: () async {
-                if (new_category_name != null && new_category_name!.isNotEmpty) {
-                  Navigator.pop(context, new_category_name);
-                } else {
-                  _show_error_message('กรุณากรอกชื่อประเภทสินค้า');
-                }
-              },
-            ),
-          ],
-        );
-      },
-    ).then((value) async {
-      if (value != null) {
-        await _add_new_category(value);
-      }
-    });
-  }
-
-  Future<void> _add_new_category(String type_name) async {
-    if (_current_user_id == null) {
-      _show_error_message('ไม่พบข้อมูลผู้ใช้งาน กรุณาลองเข้าสู่ระบบใหม่');
-      return;
-    }
-
-    setState(() {
-      _is_loading = true;
-    });
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_api_base_url/add_type.php'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'type_name': type_name,
-          'user_id': _current_user_id.toString(),
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final response_data = json.decode(utf8.decode(response.bodyBytes));
-        if (response_data['status'] == 'success') {
-          _show_success_message('เพิ่มประเภทสินค้าสำเร็จแล้ว!');
-          await _fetch_categories(); // Refresh categories
-          setState(() {
-            _selected_category = type_name; // Select the newly added category
-          });
-        } else {
-          _show_error_message('Error: ${response_data['message']}');
-        }
-      } else {
-        final error_body_decoded = utf8.decode(response.bodyBytes);
-        _show_error_message('Server error: ${response.statusCode} - $error_body_decoded');
-      }
-    } catch (e) {
-      _show_error_message('เกิดข้อผิดพลาดในการเพิ่มประเภทสินค้า: $e');
-    } finally {
-      setState(() {
-        _is_loading = false;
-      });
-    }
-  }
-
 
   Future<void> _show_add_storage_dialog() async {
     String? new_area_name;
@@ -683,26 +613,57 @@ class _AddItemPageState extends State<AddItemPage> {
     );
   }
 
+  // เพิ่มฟังก์ชันสำหรับดึง default image ตามประเภทสินค้า
+  Future<String> _get_default_image_for_category(String category) async {
+    print('DEBUG: Getting default image for category: $category');
+    try {
+      final response = await http.get(
+        Uri.parse('$_api_base_url/get_default_image.php?category=${Uri.encodeComponent(category)}')
+      );
+      
+      print('DEBUG: Response status: ${response.statusCode}');
+      print('DEBUG: Response body: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        print('DEBUG: Parsed data: $data');
+        if (data['status'] == 'success') {
+          String defaultImage = data['default_image'] ?? 'default.png';
+          print('DEBUG: Returning default image: $defaultImage');
+          return defaultImage;
+        }
+      }
+    } catch (e) {
+      print('Error getting default image: $e');
+    }
+    print('DEBUG: Using fallback default.png');
+    return 'default.png'; // fallback
+  }
+
   Future<void> _save_item() async {
     if (!_validate_form_data()) {
       return;
     }
 
+    print('DEBUG: Starting _save_item()');
+    print('DEBUG: Form data validation passed');
+
     setState(() {
       _is_loading = true;
     });
     try {
-      // เลือก API ตามโหมด
-      final apiUrl = widget.is_existing_item ? '$_api_base_url/edit_item.php' : '$_api_base_url/add_item.php';
+      // สำหรับการสแกนบาร์โค้ดของสินค้าที่มีอยู่ ให้ใช้ add_item.php เสมอ
+      // เพราะเราเพิ่มสินค้าใหม่โดยใช้ข้อมูลเดิมเป็นต้นแบบ
+      final apiUrl = '$_api_base_url/add_item.php';
+      print('DEBUG: API URL: $apiUrl');
+      
       var request = http.MultipartRequest(
         'POST',
         Uri.parse(apiUrl),
       );
 
-      // ถ้าแก้ไข ต้องส่ง item_id ด้วย
-      if (widget.is_existing_item && widget.item_data != null) {
-        request.fields['item_id'] = widget.item_data!['item_id'].toString();
-      }
+      // ไม่ต้องส่ง item_id เพราะเป็นการเพิ่มใหม่เสมอ
+      // แม้ว่าจะใช้ข้อมูลเดิมเป็นต้นแบบ
 
       request.fields['name'] = _name_controller.text;
       request.fields['quantity'] = _quantity_controller.text;
@@ -724,6 +685,8 @@ class _AddItemPageState extends State<AddItemPage> {
         if (_item_locations[0]['area_id'] != null) {
           request.fields['storage_id'] = _item_locations[0]['area_id'].toString();
         }
+        print('DEBUG: Using multiple locations');
+        print('DEBUG: item_locations: ${json.encode(_item_locations)}');
       } else {
         // Single location (original behavior)
         request.fields['storage_location'] = _selected_storage;
@@ -739,35 +702,62 @@ class _AddItemPageState extends State<AddItemPage> {
         if (areaId != null) {
           request.fields['storage_id'] = areaId.toString();
         }
+        print('DEBUG: Using single location');
+        print('DEBUG: storage_location: $_selected_storage');
+        print('DEBUG: storage_id (area_id): $areaId');
       }
+
+      // Log all fields being sent
+      print('DEBUG: All request fields:');
+      request.fields.forEach((key, value) {
+        print('DEBUG: $key = $value');
+      });
 
       // อัปโหลดรูปภาพ (key ต้องเป็น 'item_img' เพื่อรองรับแก้ไข)
       if (_picked_image != null) {
+        print('DEBUG: Adding image file: ${_picked_image!.path}');
         request.files.add(
           await http.MultipartFile.fromPath('item_img', _picked_image!.path),
         );
+      } else {
+        // ใช้ default image สำหรับประเภทที่เลือก
+        String defaultImage = await _get_default_image_for_category(_selected_category);
+        request.fields['default_image'] = defaultImage;
+        print('DEBUG: Using default image: $defaultImage');
       }
 
+      print('DEBUG: Sending request...');
       var response = await request.send();
+      print('DEBUG: Response status code: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final response_body = await response.stream.bytesToString();
+        print('DEBUG: Response body: $response_body');
         final response_data = json.decode(response_body);
+        print('DEBUG: Parsed response: $response_data');
+        
         if (response_data['status'] == 'success') {
-          _show_success_message(widget.is_existing_item ? 'แก้ไขข้อมูลสินค้าสำเร็จแล้ว!' : 'บันทึกข้อมูลสินค้าสำเร็จแล้ว!');
+          print('DEBUG: Success! Item saved successfully');
+          _show_success_message('บันทึกข้อมูลสินค้าสำเร็จแล้ว!');
           if (widget.on_item_added != null) {
             widget.on_item_added!();
           }
           Navigator.pop(context, true);
         } else {
+          print('DEBUG: API returned error: ${response_data['message']}');
           _show_error_message('Error: ${response_data['message']}');
         }
       } else {
         final error_body = await response.stream.bytesToString();
+        print('DEBUG: HTTP error ${response.statusCode}: $error_body');
         _show_error_message('Server error: ${response.statusCode} - $error_body');
       }
     // Remove duplicate/invalid code after finally
+    } catch (e) {
+      print('DEBUG: Exception occurred: $e');
+      _show_error_message('เกิดข้อผิดพลาด: $e');
     } finally {
+      print('DEBUG: _save_item() completed');
       setState(() {
         _is_loading = false;
       });
@@ -796,7 +786,8 @@ class _AddItemPageState extends State<AddItemPage> {
         ),
         centerTitle: true,
       ),
-      body: _is_loading && _categories.length <= 1 && _storage_locations.length <= 1
+      body: (_is_loading && _categories.length <= 1 && _storage_locations.length <= 1) || 
+             (widget.is_existing_item && !_isDataInitialized())
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _form_key,
@@ -1003,7 +994,7 @@ class _AddItemPageState extends State<AddItemPage> {
                           Expanded(
                             flex: 2,
                             child: _build_dropdown(
-                              value: _selected_unit,
+                              value: _units.contains(_selected_unit) ? _selected_unit : 'วันหมดอายุ(EXP)',
                               items: _units,
                               onChanged: (value) {
                                 setState(() {
@@ -1044,7 +1035,7 @@ class _AddItemPageState extends State<AddItemPage> {
                       _build_section_title('หมวดหมู่'),
                       const SizedBox(height: 12),
                       _build_dropdown(
-                        value: _selected_category,
+                        value: _categories.contains(_selected_category) ? _selected_category : 'เลือกประเภท',
                         items: _categories,
                         onChanged: (value) {
                           setState(() {
@@ -1055,7 +1046,9 @@ class _AddItemPageState extends State<AddItemPage> {
                       const SizedBox(height: 16),
                       // Modified dropdown for storage locations
                       DropdownButtonFormField<String>(
-                        value: _selected_storage,
+                        value: _storage_locations.map((e) => e['area_name'] as String).contains(_selected_storage) 
+                            ? _selected_storage 
+                            : 'เลือกพื้นที่จัดเก็บ',
                         decoration: InputDecoration(
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -1513,8 +1506,11 @@ class _AddItemPageState extends State<AddItemPage> {
     required List<String> items,
     required void Function(String?) onChanged,
   }) {
+    // ป้องกัน error โดยตรวจสอบว่า value อยู่ใน items หรือไม่
+    String safeValue = items.contains(value) ? value : items.first;
+    
     return DropdownButtonFormField<String>(
-      value: value,
+      value: safeValue,
       decoration: InputDecoration(
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -1547,11 +1543,7 @@ class _AddItemPageState extends State<AddItemPage> {
         );
       }).toList(),
       onChanged: (newValue) {
-        if (newValue == 'เพิ่มประเภทสินค้า') {
-          _show_add_category_dialog();
-        } else {
-          onChanged(newValue);
-        }
+        onChanged(newValue);
       },
       validator: (value) {
         if (value == null || value.startsWith('เลือก')) {

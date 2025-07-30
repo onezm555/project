@@ -182,7 +182,7 @@ class _CalendarPageState extends State<CalendarPage> {
               ),
             )
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
               child: Column(
                 children: [
                   _build_month_filter(), // ตัวกรองอยู่ด้านบนเสมอ
@@ -328,41 +328,50 @@ class _CalendarPageState extends State<CalendarPage> {
     }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 24),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      margin: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // แสดงชื่อเดือนและปีที่นี่
-          Text(
-            month_title,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF4A90E2),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              month_title,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4A90E2),
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              childAspectRatio: 1.0,
-              crossAxisSpacing: 4,
-              mainAxisSpacing: 4,
+          // แสดงหัวข้อวันของสัปดาห์
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            child: Row(
+              children: const [
+                Expanded(child: Center(child: Text('อา', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('จ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('อ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('พ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('พฤ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('ศ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('ส', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+              ],
             ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 7,
+                childAspectRatio: 1.0,
+                crossAxisSpacing: 4,
+                mainAxisSpacing: 4,
+              ),
             itemCount: days_in_month + offset,
             itemBuilder: (context, index) {
               if (index < offset) {
@@ -403,35 +412,38 @@ class _CalendarPageState extends State<CalendarPage> {
                   }
                 },
                 child: Container(
-                  decoration: BoxDecoration(
-                    color: has_expiry
-                        ? const Color(0xFF4A90E2).withOpacity(0.2)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: has_expiry
-                          ? const Color(0xFF4A90E2)
-                          : Colors.transparent,
-                      width: 1,
-                    ),
-                  ),
                   alignment: Alignment.center,
-                  child: Text(
-                    // กลับไปแสดงแค่ตัวเลขวัน
-                    '$day',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: has_expiry
-                          ? const Color(0xFF4A90E2)
-                          : Colors.black87,
-                      fontWeight: has_expiry
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: has_expiry ? Colors.white : Colors.transparent,
+                      shape: BoxShape.circle,
+                      border: has_expiry
+                          ? Border.all(
+                              color: const Color(0xFFE91E63),
+                              width: 2.5,
+                            )
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '$day',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: has_expiry
+                            ? const Color(0xFFE91E63)
+                            : Colors.black87,
+                        fontWeight: has_expiry
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
                     ),
                   ),
                 ),
               );
             },
+            ),
           ),
         ],
       ),
@@ -528,21 +540,35 @@ class _CalendarPageState extends State<CalendarPage> {
                                   height: 40,
                                   fit: BoxFit.cover,
                                   errorBuilder: (context, error, stackTrace) {
-                                    return Image.asset(
-                                      'assets/images/default.png',
+                                    return Container(
                                       width: 40,
                                       height: 40,
-                                      fit: BoxFit.cover,
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Icon(
+                                        Icons.image,
+                                        color: Colors.grey,
+                                        size: 24,
+                                      ),
                                     );
                                   },
                                 ),
                               )
                             else
-                              Image.asset(
-                                'assets/images/default.png',
+                              Container(
                                 width: 40,
                                 height: 40,
-                                fit: BoxFit.cover,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[300],
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Icon(
+                                  Icons.image,
+                                  color: Colors.grey,
+                                  size: 24,
+                                ),
                               ),
                             const SizedBox(width: 12),
                             Expanded(

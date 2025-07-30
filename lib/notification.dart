@@ -92,15 +92,34 @@ class _NotificationPageState extends State<NotificationPage> {
             // Schedule local notification
             _scheduleNotification(item, notifyDate, daysLeft);
             if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
+              // ตรวจสอบประเภทวันที่ (EXP หรือ BBF)
+              final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+              final isBBF = dateType == 'BBF';
+              
+              String description;
+              String dateLabel;
+              
+              if (isBBF) {
+                description = daysLeft < 0
+                    ? 'เลยวันควรบริโภคแล้ว'
+                    : 'ควรบริโภคในอีก ${daysLeft} วัน';
+                dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+              } else {
+                description = daysLeft < 0
+                    ? 'หมดอายุแล้ว'
+                    : 'จะหมดอายุในอีก ${daysLeft} วัน';
+                dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+              }
+              
               notiList.add({
                 'id': item['item_id'],
                 'type': daysLeft <= 0 ? 'today' : 'stored',
                 'title': item['item_name'],
-                'description': daysLeft < 0
-                    ? 'หมดอายุแล้ว'
-                    : 'จะหมดอายุในอีก ${daysLeft} วัน',
-                'date': 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}',
+                'description': description,
+                'date': dateLabel,
                 'is_expired': daysLeft < 0,
+                'is_bbf': isBBF,
+                'date_type': dateType,
                 'created_at': now,
                 'item_data': item, // เพิ่มข้อมูลดิบของสินค้า
               });
@@ -137,15 +156,30 @@ class _NotificationPageState extends State<NotificationPage> {
   Future<void> _scheduleNotification(Map<String, dynamic> item, DateTime notifyDate, int daysLeft) async {
     final now = DateTime.now();
     final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
-    debugPrint('[NOTI] _scheduleNotification: itemId=$itemId, notifyDate=$notifyDate, now=$now, daysLeft=$daysLeft');
+    final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+    final isBBF = dateType == 'BBF';
+    
+    debugPrint('[NOTI] _scheduleNotification: itemId=$itemId, notifyDate=$notifyDate, now=$now, daysLeft=$daysLeft, dateType=$dateType');
+    
     if (notifyDate.isAfter(now)) {
       try {
+        String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+        String message;
+        
+        if (isBBF) {
+          message = daysLeft < 0
+              ? '${item['item_name']} เลยวันควรบริโภคแล้ว'
+              : '${item['item_name']} ควรบริโภคในอีก $daysLeft วัน';
+        } else {
+          message = daysLeft < 0
+              ? '${item['item_name']} หมดอายุแล้ว'
+              : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน';
+        }
+        
         await flutterLocalNotificationsPlugin.zonedSchedule(
           itemId,
-          'สินค้าใกล้หมดอายุ',
-          daysLeft < 0
-              ? '${item['item_name']} หมดอายุแล้ว'
-              : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน',
+          title,
+          message,
           tz.TZDateTime.from(notifyDate, tz.getLocation('Asia/Bangkok')),
           const NotificationDetails(
             android: AndroidNotificationDetails(
@@ -185,31 +219,11 @@ class _NotificationPageState extends State<NotificationPage> {
                     ],
                   ),
                 ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            onPressed: _testNotification,
-            tooltip: 'ทดสอบการแจ้งเตือนทันที',
-            heroTag: "btn1",
-            child: const Icon(Icons.notifications_active),
-          ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            onPressed: _testScheduledNotification,
-            tooltip: 'ทดสอบการแจ้งเตือนล่วงหน้า',
-            heroTag: "btn2",
-            child: const Icon(Icons.schedule),
-          ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            onPressed: _checkPendingNotifications,
-            tooltip: 'ดู Pending Notifications',
-            heroTag: "btn3",
-            backgroundColor: Colors.green,
-            child: const Icon(Icons.list),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        onPressed: _testApiNotification,
+        tooltip: 'การแจ้งเตือน',
+        backgroundColor: Colors.purple,
+        child: const Icon(Icons.api),
       ),
     );
   }
@@ -296,6 +310,22 @@ class _NotificationPageState extends State<NotificationPage> {
   // Widget การ์ดการแจ้งเตือน
   Widget _build_notification_card(Map<String, dynamic> notification) {
     final is_expired = notification['is_expired'] as bool;
+    final is_bbf = notification['is_bbf'] as bool? ?? false;
+    
+    // กำหนดสีและไอคอนตามประเภท
+    Color statusColor;
+    Color backgroundColor;
+    IconData statusIcon;
+    
+    if (is_expired) {
+      statusColor = is_bbf ? Colors.deepOrange : Colors.red;
+      backgroundColor = is_bbf ? Colors.deepOrange.withOpacity(0.1) : Colors.red.withOpacity(0.1);
+      statusIcon = is_bbf ? Icons.schedule_outlined : Icons.error_outline;
+    } else {
+      statusColor = is_bbf ? Colors.amber : Colors.orange;
+      backgroundColor = is_bbf ? Colors.amber.withOpacity(0.1) : Colors.orange.withOpacity(0.1);
+      statusIcon = is_bbf ? Icons.schedule_outlined : Icons.warning_outlined;
+    }
     return GestureDetector(
       onTap: () async {
         // ดึงข้อมูลสินค้าทั้งหมดจาก _notifications หรือ fetch ใหม่จาก API ถ้าต้องการข้อมูลเต็ม
@@ -368,12 +398,12 @@ class _NotificationPageState extends State<NotificationPage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: is_expired ? Colors.red.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                color: backgroundColor,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Icon(
-                is_expired ? Icons.error_outline : Icons.warning_outlined,
-                color: is_expired ? Colors.red : Colors.orange,
+                statusIcon,
+                color: statusColor,
                 size: 20,
               ),
             ),
@@ -402,7 +432,7 @@ class _NotificationPageState extends State<NotificationPage> {
                     notification['description'],
                     style: TextStyle(
                       fontSize: 14,
-                      color: is_expired ? Colors.red : Colors.orange,
+                      color: statusColor,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -420,210 +450,127 @@ class _NotificationPageState extends State<NotificationPage> {
                 ],
               ),
             ),
-            
-            // ปุ่มลบ
-            IconButton(
-              onPressed: () => _delete_notification(notification['id']),
-              icon: const Icon(
-                Icons.delete_outline,
-                color: Colors.grey,
-                size: 20,
-              ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  // ฟังก์ชันลบการแจ้งเตือน
-  void _delete_notification(int id) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ลบการแจ้งเตือน'),
-        content: const Text('คุณต้องการลบการแจ้งเตือนนี้หรือไม่?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _notifications.removeWhere((n) => n['id'] == id);
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('ลบการแจ้งเตือนเรียบร้อยแล้ว'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            child: const Text(
-              'ลบ',
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ฟังก์ชันทดสอบการแจ้งเตือน
-  Future<void> _testNotification() async {
+  // ฟังก์ชันทดสอบการแจ้งเตือนจาก API
+  Future<void> _testApiNotification() async {
     try {
-      await flutterLocalNotificationsPlugin.show(
-        99999, // ID สำหรับทดสอบ
-        'ทดสอบการแจ้งเตือน',
-        'นี่คือการแจ้งเตือนทดสอบ - เวลา ${DateTime.now().toString().substring(11, 19)}',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'test_channel',
-            'ทดสอบแจ้งเตือน',
-            channelDescription: 'ช่องทดสอบการแจ้งเตือน',
-            importance: Importance.max,
-            priority: Priority.high,
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      final int? userId = prefs.getInt('user_id');
+      
+      if (userId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ไม่พบ User ID'),
+            backgroundColor: Colors.red,
           ),
-        ),
-      );
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ส่งการแจ้งเตือนทดสอบแล้ว'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('ไม่สามารถส่งการแจ้งเตือนได้: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  // ฟังก์ชันทดสอบการแจ้งเตือนล่วงหน้า
-  Future<void> _testScheduledNotification() async {
-    try {
-      final scheduleTime = DateTime.now().add(const Duration(seconds: 5));
-      
-      debugPrint('[TEST_NOTI] Scheduling notification for: $scheduleTime');
-      debugPrint('[TEST_NOTI] Current time: ${DateTime.now()}');
-      
-      // ตรวจสอบ pending notifications ก่อน
-      final pendingNotificationRequests = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
-      debugPrint('[TEST_NOTI] Pending notifications: ${pendingNotificationRequests.length}');
-      
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        99998,
-        'ทดสอบการแจ้งเตือนล่วงหน้า',
-        'การแจ้งเตือนนี้ตั้งเวลาไว้ที่ ${scheduleTime.toString().substring(11, 19)} ตัวที่ ${pendingNotificationRequests.length + 1}',
-        tz.TZDateTime.from(scheduleTime, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'test_scheduled_channel',
-            'ทดสอบแจ้งเตือนล่วงหน้า',
-            channelDescription: 'ช่องทดสอบการแจ้งเตือนล่วงหน้า',
-            importance: Importance.max,
-            priority: Priority.high,
-            enableLights: true,
-            enableVibration: true,
-            playSound: true,
-            icon: '@mipmap/ic_launcher',
-            fullScreenIntent: true,
-            category: AndroidNotificationCategory.alarm,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
-      
-      debugPrint('[TEST_NOTI] Scheduled notification successfully');
-      
-      // แสดงรายการ pending notifications หลังจากเพิ่ม
-      final newPendingNotificationRequests = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
-      debugPrint('[TEST_NOTI] New pending notifications: ${newPendingNotificationRequests.length}');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('ตั้งเวลาการแจ้งเตือนแล้ว\nจะแจ้งเตือนเวลา ${scheduleTime.toString().substring(11, 19)}\nPending: ${newPendingNotificationRequests.length}'),
-          backgroundColor: Colors.blue,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    } catch (e) {
-      debugPrint('[TEST_NOTI] Error scheduling notification: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('ไม่สามารถตั้งเวลาการแจ้งเตือนได้: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  // ฟังก์ชันดู Pending Notifications
-  Future<void> _checkPendingNotifications() async {
-    try {
-      final pendingNotificationRequests = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
-      
-      debugPrint('[PENDING_NOTI] Total pending: ${pendingNotificationRequests.length}');
-      
-      String message = 'มี ${pendingNotificationRequests.length} การแจ้งเตือนรอ\n\n';
-      
-      for (var notification in pendingNotificationRequests) {
-        message += 'ID: ${notification.id}\n';
-        message += 'Title: ${notification.title}\n';
-        message += 'Body: ${notification.body}\n\n';
-        debugPrint('[PENDING_NOTI] ${notification.id}: ${notification.title}');
+        );
+        return;
       }
+
+      debugPrint('[TEST_API_NOTI] Testing API notification for user: $userId');
       
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Pending Notifications'),
-          content: SingleChildScrollView(
-            child: Text(message.isEmpty ? 'ไม่มีการแจ้งเตือนรอ' : message),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('ปิด'),
-            ),
-            TextButton(
-              onPressed: () async {
-                await flutterLocalNotificationsPlugin.cancelAll();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('ยกเลิกการแจ้งเตือนทั้งหมดแล้ว'),
-                    backgroundColor: Colors.orange,
+      final String apiUrl = '${dotenv.env['API_BASE_URL']}/notification_check.php?user_id=$userId&check_only=false';
+      debugPrint('[TEST_API_NOTI] API URL: $apiUrl');
+      
+      final response = await http.get(Uri.parse(apiUrl));
+      debugPrint('[TEST_API_NOTI] API Response status: ${response.statusCode}');
+      debugPrint('[TEST_API_NOTI] API Response body: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        
+        if (responseData['success'] == true) {
+          final notifications = responseData['data'] as List;
+          final summary = responseData['summary'];
+          
+          // แสดงผลลัพธ์
+          String message = 'ผลการทดสอบ API:\n\n';
+          message += 'การแจ้งเตือนทั้งหมด: ${summary['total_notifications']}\n';
+          message += 'สินค้าหมดอายุแล้ว: ${summary['expired_items']}\n';
+          message += 'สินค้าใกล้หมดอายุ: ${summary['expiring_items']}\n\n';
+          
+          if (notifications.isNotEmpty) {
+            message += 'รายการที่ควรได้รับการแจ้งเตือน:\n';
+            for (var noti in notifications.take(5)) { // แสดงแค่ 5 รายการแรก
+              message += '• ${noti['item_name']} (${noti['notification_message']})\n';
+            }
+            if (notifications.length > 5) {
+              message += '... และอีก ${notifications.length - 5} รายการ\n';
+            }
+          } else {
+            message += 'ไม่มีสินค้าที่ควรได้รับการแจ้งเตือนในขณะนี้';
+          }
+          
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('ผลการทดสอบ API'),
+              content: SingleChildScrollView(
+                child: Text(message),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('ปิด'),
+                ),
+                if (notifications.isNotEmpty)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _fetch_notifications(); // รีเฟรชข้อมูล
+                    },
+                    child: const Text('รีเฟรชการแจ้งเตือน'),
                   ),
-                );
-              },
-              child: const Text('ยกเลิกทั้งหมด', style: TextStyle(color: Colors.red)),
+              ],
             ),
-          ],
-        ),
-      );
+          );
+          if (notifications.isNotEmpty) {
+            final firstNotification = notifications.first;
+            await flutterLocalNotificationsPlugin.show(
+              99997,
+              'การแจ้งเตือน: ${firstNotification['notification_title']}',
+              firstNotification['notification_message'],
+              const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'api_test_channel',
+                  'ทดสอบ API แจ้งเตือน',
+                  channelDescription: 'ช่องทดสอบการแจ้งเตือนจาก API',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                ),
+              ),
+            );
+          }
+          
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('API Error: ${responseData['message'] ?? 'Unknown error'}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('HTTP Error: ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
+      debugPrint('[TEST_API_NOTI] Exception: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('ไม่สามารถดู pending notifications ได้: $e'),
+          content: Text('ไม่สามารถทดสอบ API ได้: $e'),
           backgroundColor: Colors.red,
         ),
       );
     }
-  }
-
-  // ฟังก์ชันรีเฟรชการแจ้งเตือน
-  Future<void> _refresh_notifications() async {
-    await Future.delayed(const Duration(seconds: 1));
-    // TODO: เพิ่มการโหลดข้อมูลการแจ้งเตือนจาก API หรือ Database
-    setState(() {
-      // อัปเดตข้อมูลถ้าจำเป็น
-    });
   }
 }

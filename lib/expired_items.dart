@@ -14,16 +14,145 @@ class ExpiredItemsPage extends StatefulWidget {
 
 class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
   List<Map<String, dynamic>> _stored_items = [];
+  List<Map<String, dynamic>> _filtered_items = [];
   bool _is_loading = true;
   String? _api_message;
   bool _is_true_error = false;
   String _api_base_url = '';
+  String _selected_category = 'ทั้งหมด';
+  String _selected_storage = 'ทั้งหมด';
+  String _search_query = '';
+  List<String> _available_categories = ['ทั้งหมด'];
+  List<String> _available_storages = ['ทั้งหมด'];
+  bool _show_filters = false;
+  final TextEditingController _search_controller = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
     fetchExpiredItemsData();
+  }
+
+  @override
+  void dispose() {
+    _search_controller.dispose();
+    super.dispose();
+  }
+
+  // ฟังก์ชันดึงรายการพื้นที่จัดเก็บจาก API
+  Future<List<String>> _fetch_storages_from_api() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user_id = prefs.getInt('user_id');
+      
+      if (user_id == null) return ['ทั้งหมด'];
+
+      String url = '$_api_base_url/my_items.php?user_id=$user_id&status=all_expired';
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['success'] == true) {
+          List<dynamic> itemsData = responseData['data'] ?? [];
+          Set<String> storages = {'ทั้งหมด'};
+          
+          for (var item in itemsData) {
+            String storage = item['storage_location'] ?? '';
+            if (storage.isNotEmpty) {
+              storages.add(storage);
+            }
+          }
+          
+          List<String> sortedStorages = storages.toList()..sort();
+          // ย้าย "ทั้งหมด" มาข้างหน้า
+          sortedStorages.remove('ทั้งหมด');
+          sortedStorages.insert(0, 'ทั้งหมด');
+          
+          return sortedStorages;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching storages: $e');
+    }
+    
+    return ['ทั้งหมด'];
+  }
+
+  // ฟังก์ชันดึงรายการหมวดหมู่จาก API
+  Future<List<String>> _fetch_categories_from_api() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user_id = prefs.getInt('user_id');
+      
+      if (user_id == null) return ['ทั้งหมด'];
+
+      String url = '$_api_base_url/my_items.php?user_id=$user_id&status=all_expired';
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['success'] == true) {
+          List<dynamic> itemsData = responseData['data'] ?? [];
+          Set<String> categories = {'ทั้งหมด'};
+          
+          for (var item in itemsData) {
+            String category = item['category'] ?? '';
+            if (category.isNotEmpty) {
+              categories.add(category);
+            }
+          }
+          
+          List<String> sortedCategories = categories.toList()..sort();
+          // ย้าย "ทั้งหมด" มาข้างหน้า
+          sortedCategories.remove('ทั้งหมด');
+          sortedCategories.insert(0, 'ทั้งหมด');
+          
+          return sortedCategories;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching categories: $e');
+    }
+    
+    return ['ทั้งหมด'];
+  }
+
+  // ฟังก์ชันอัพเดทรายการหมวดหมู่และกรองข้อมูล
+  Future<void> _update_categories_and_filter() async {
+    // ดึงหมวดหมู่และพื้นที่จัดเก็บจาก API
+    _available_categories = await _fetch_categories_from_api();
+    _available_storages = await _fetch_storages_from_api();
+    
+    // กรองรายการตามเงื่อนไขต่างๆ
+    _filtered_items = _stored_items.where((item) {
+      // กรองตามหมวดหมู่
+      bool categoryMatch = true;
+      if (_selected_category != 'ทั้งหมด') {
+        String itemCategory = item['category'] ?? '';
+        categoryMatch = itemCategory == _selected_category;
+      }
+      
+      // กรองตามพื้นที่จัดเก็บ
+      bool storageMatch = true;
+      if (_selected_storage != 'ทั้งหมด') {
+        String itemStorage = item['storage_location'] ?? '';
+        storageMatch = itemStorage == _selected_storage;
+      }
+      
+      // กรองตามการค้นหา
+      bool searchMatch = true;
+      if (_search_query.isNotEmpty) {
+        String itemName = (item['item_name'] ?? '').toLowerCase();
+        String barcode = (item['item_barcode'] ?? '').toLowerCase();
+        String searchLower = _search_query.toLowerCase();
+        searchMatch = itemName.contains(searchLower) || barcode.contains(searchLower);
+      }
+      
+      return categoryMatch && storageMatch && searchMatch;
+    }).toList();
   }
 
   Future<void> fetchExpiredItemsData() async {
@@ -67,6 +196,10 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                 .toList();
             _is_loading = false;
           });
+          
+          // อัพเดทหมวดหมู่และกรองข้อมูลหลังจาก setState
+          await _update_categories_and_filter();
+          setState(() {}); // รีเฟรช UI หลังจากอัพเดทหมวดหมู่
         } else {
           setState(() {
             _api_message = responseData['message'] ?? 'Failed to load items.';
@@ -178,22 +311,223 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                 ],
               ),
             )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16.0),
-              itemCount: _stored_items.length,
-              itemBuilder: (context, index) {
-                final item = _stored_items[index];
-                final days_left = _calculate_days_left(item['item_date'] ?? ''); // Pass empty string if null
-                final status_info = _get_status_info(item['item_status'] ?? '', days_left);
+          : Column(
+              children: [
+                // ส่วนค้นหาและฟิลเตอร์
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      // แถบค้นหาและปุ่มฟิลเตอร์
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _search_controller,
+                              decoration: InputDecoration(
+                                hintText: 'ค้นหาชื่อสินค้าหรือบาร์โค้ด...',
+                                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(color: Colors.grey[300]!),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Color(0xFF4A90E2)),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              ),
+                              onChanged: (value) {
+                                setState(() {
+                                  _search_query = value;
+                                });
+                                _update_categories_and_filter().then((_) {
+                                  setState(() {});
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: _show_filters ? const Color(0xFF4A90E2) : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _show_filters ? const Color(0xFF4A90E2) : Colors.grey[300]!,
+                              ),
+                            ),
+                            child: IconButton(
+                              icon: Icon(
+                                Icons.filter_list,
+                                color: _show_filters ? Colors.white : Colors.grey[600],
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _show_filters = !_show_filters;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      // ส่วนฟิลเตอร์ (แสดงเมื่อ _show_filters = true)
+                      if (_show_filters) ...[
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 16),
+                        
+                        // ฟิลเตอร์หมวดหมู่สินค้า
+                        Row(
+                          children: [
+                            const SizedBox(width: 100, child: Text('สินค้า:', style: TextStyle(fontWeight: FontWeight.w600))),
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _selected_category,
+                                    isExpanded: true,
+                                    items: _available_categories.map((String category) {
+                                      return DropdownMenuItem<String>(
+                                        value: category,
+                                        child: Text(category),
+                                      );
+                                    }).toList(),
+                                    onChanged: (String? newValue) async {
+                                      if (newValue != null) {
+                                        setState(() {
+                                          _selected_category = newValue;
+                                        });
+                                        await _update_categories_and_filter();
+                                        setState(() {});
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        // ฟิลเตอร์พื้นที่จัดเก็บ
+                        Row(
+                          children: [
+                            const SizedBox(width: 100, child: Text('พื้นที่:', style: TextStyle(fontWeight: FontWeight.w600))),
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _selected_storage,
+                                    isExpanded: true,
+                                    items: _available_storages.map((String storage) {
+                                      return DropdownMenuItem<String>(
+                                        value: storage,
+                                        child: Text(storage),
+                                      );
+                                    }).toList(),
+                                    onChanged: (String? newValue) async {
+                                      if (newValue != null) {
+                                        setState(() {
+                                          _selected_storage = newValue;
+                                        });
+                                        await _update_categories_and_filter();
+                                        setState(() {});
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        // ปุ่มรีเซ็ตฟิลเตอร์
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              setState(() {
+                                _selected_category = 'ทั้งหมด';
+                                _selected_storage = 'ทั้งหมด';
+                                _search_query = '';
+                                _search_controller.clear();
+                              });
+                              await _update_categories_and_filter();
+                              setState(() {});
+                            },
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('รีเซ็ตฟิลเตอร์'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.grey[600],
+                            ),
+                          ),
+                        ),
+                      ],
+                      
+                      // แสดงจำนวนที่กรองแล้ว
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'แสดง ${_filtered_items.length} รายการจากทั้งหมด ${_stored_items.length} รายการ',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // รายการสินค้า
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _filtered_items.length,
+                    itemBuilder: (context, index) {
+                      final item = _filtered_items[index];
+                      final days_left = _calculate_days_left(item['item_date'] ?? '');
+                      final status_info = _get_status_info(item['item_status'] ?? '', days_left);
+                      final category = item['category'] ?? 'ไม่ระบุ';
 
-
-                return _build_item_card(
-                  item: item,
-                  days_left: days_left,
-                  status_text: status_info['text'],
-                  status_color: status_info['color'],
-                );
-              },
+                      return _build_item_card(
+                        item: item,
+                        days_left: days_left,
+                        status_text: status_info['text'],
+                        status_color: status_info['color'],
+                        category: category,
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
     );
   }
@@ -204,6 +538,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
     required int days_left,
     required String status_text,
     required Color status_color,
+    required String category,
   }) {
     return GestureDetector(
       onTap: () async {
@@ -269,19 +604,32 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
-                            color: Colors.grey[200],
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             child: const Icon(
-                              Icons.broken_image,
+                              Icons.image,
                               color: Colors.grey,
                               size: 30,
                             ),
                           );
                         },
                       )
-                    : const Icon(
-                        Icons.camera_alt_outlined,
-                        color: Colors.grey,
-                        size: 32,
+                    : Container(
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.image,
+                          color: Colors.grey,
+                          size: 30,
+                        ),
                       ),
               ),
             ),
@@ -313,6 +661,16 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            // แสดงประเภทสินค้า
+                            Text(
+                              'สินค้า: $category',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange[600],
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                             const SizedBox(height: 4),
