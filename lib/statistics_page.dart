@@ -100,8 +100,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
         });
         return;
       }
-
-      // Debug print
       print('User ID String from SharedPreferences: $userIdString');
       print('User ID Int from SharedPreferences: $userIdInt');
       print('Final User ID: $userId');
@@ -121,7 +119,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
       print('API URL: $apiUrl');
       print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
       print('Making HTTP GET request...');
-      
       final response = await http.get(
         Uri.parse(apiUrl),
         headers: {
@@ -334,17 +331,17 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   List<PieChartSectionData> _getPieChartSections() {
-    int displayTotal = _expiredItems + _disposedItems;
+    int displayTotal = _disposedItems + _expiredItems;
     if (displayTotal == 0) return [];
     
     List<PieChartSectionData> sections = [];
     
-    // เพิ่มส่วนสำหรับ expired items
-    if (_expiredItems > 0) {
+    // เพิ่มส่วนสำหรับ disposed items (ใช้แล้ว)
+    if (_disposedItems > 0) {
       sections.add(PieChartSectionData(
         color: const Color(0xFF8B5CF6), // สีม่วง
-        value: _expiredItems.toDouble(),
-        title: '${((_expiredItems / displayTotal) * 100).toStringAsFixed(1)}%',
+        value: _disposedItems.toDouble(),
+        title: '${((_disposedItems / displayTotal) * 100).toStringAsFixed(1)}%',
         radius: 60,
         titleStyle: const TextStyle(
           fontSize: 12,
@@ -354,12 +351,12 @@ class _StatisticsPageState extends State<StatisticsPage> {
       ));
     }
     
-    // เพิ่มส่วนสำหรับ disposed items
-    if (_disposedItems > 0) {
+    // เพิ่มส่วนสำหรับ expired items (หมดอายุ)
+    if (_expiredItems > 0) {
       sections.add(PieChartSectionData(
         color: const Color(0xFFEF4444), // สีแดง
-        value: _disposedItems.toDouble(),
-        title: '${((_disposedItems / displayTotal) * 100).toStringAsFixed(1)}%',
+        value: _expiredItems.toDouble(),
+        title: '${((_expiredItems / displayTotal) * 100).toStringAsFixed(1)}%',
         radius: 60,
         titleStyle: const TextStyle(
           fontSize: 12,
@@ -563,7 +560,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           Expanded(
                             child: _buildStatCard(
                               'ใช้แล้ว',
-                              _expiredItems.toString(),
+                              _disposedItems.toString(),  // เปลี่ยนจาก _expiredItems เป็น _disposedItems
                               Colors.purple,
                             ),
                           ),
@@ -571,7 +568,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           Expanded(
                             child: _buildStatCard(
                               'หมดอายุ',
-                              _disposedItems.toString(),
+                              _expiredItems.toString(),   // เปลี่ยนจาก _disposedItems เป็น _expiredItems
                               Colors.red,
                             ),
                           ),
@@ -616,7 +613,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       const SizedBox(height: 24),
                       
                       // Pie Chart
-                      if ((_expiredItems + _disposedItems) > 0)
+                      if ((_disposedItems + _expiredItems) > 0)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(20),
@@ -850,7 +847,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.purple[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(category['expired_count'])}',
+                      '${_parseToInt(category['disposed_count'])}',  // เปลี่ยนจาก expired_count เป็น disposed_count
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.purple[700],
@@ -880,7 +877,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.red[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(category['disposed_count'])}',
+                      '${_parseToInt(category['expired_count'])}',  // เปลี่ยนจาก disposed_count เป็น expired_count
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.red[700],
@@ -956,7 +953,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.purple[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(product['expired_count'])}',
+                      '${_parseToInt(product['disposed_count'])}',  // เปลี่ยนจาก expired_count เป็น disposed_count
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.purple[700],
@@ -986,7 +983,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.red[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(product['disposed_count'])}',
+                      '${_parseToInt(product['expired_count'])}',  // เปลี่ยนจาก disposed_count เป็น expired_count
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.red[700],

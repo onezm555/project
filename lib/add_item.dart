@@ -34,6 +34,7 @@ class _AddItemPageState extends State<AddItemPage> {
   String _selected_unit = 'วันหมดอายุ(EXP)';
   String _selected_category = 'เลือกประเภท';
   String _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+  String? _temp_category_from_item_data; // เก็บหมวดหมู่ชั่วคราวจาก item_data
   XFile? _picked_image;
   bool _is_loading = false;
   List<String> _units = ['วันหมดอายุ(EXP)', 'ควรบริโภคก่อน(BBF)'];
@@ -49,6 +50,10 @@ class _AddItemPageState extends State<AddItemPage> {
   bool _enable_multiple_locations_option = false; // เปิดใช้งานตัวเลือกกระจายสินค้า
   List<Map<String, dynamic>> _item_locations = [];
   int _remaining_quantity = 0;
+
+  // Variables for multiple expire dates per item
+  bool _use_multiple_expire_dates = false;
+  List<Map<String, dynamic>> _item_expire_details = []; // วันหมดอายุแต่ละชิ้น
 
   // ใช้ URL จาก .env
   final String _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost';
@@ -89,7 +94,8 @@ class _AddItemPageState extends State<AddItemPage> {
         _selected_unit = _units.contains(rawUnit) ? rawUnit : 'วันหมดอายุ(EXP)';
       }
       
-      _selected_category = item['category'] ?? item['type_name'] ?? 'เลือกประเภท';
+      // เก็บหมวดหมู่ไว้ชั่วคราว รอ _fetch_categories() ตั้งค่าให้
+      _temp_category_from_item_data = item['category'] ?? item['type_name'] ?? '';
       _selected_storage = item['storage_location'] ?? item['area_name'] ?? 'เลือกพื้นที่จัดเก็บ';
       
       if (item['item_date'] != null) {
@@ -100,7 +106,114 @@ class _AddItemPageState extends State<AddItemPage> {
         }
       }
       
-      print('DEBUG: Form populated - name: ${_name_controller.text}, category: $_selected_category, storage: $_selected_storage, unit: $_selected_unit');
+      print('DEBUG: Form populated - name: ${_name_controller.text}, category: $_temp_category_from_item_data, storage: $_selected_storage, unit: $_selected_unit');
+      print('DEBUG: Item data keys: ${item.keys.toList()}');
+      print('DEBUG: Item data category field: ${item['category']}');
+      print('DEBUG: Item data type_name field: ${item['type_name']}');
+      
+      // โหลดข้อมูล item_expire_details (วันหมดอายุแต่ละชิ้น) ถ้ามี
+      if (item['item_expire_details'] != null) {
+        final existingExpireDetails = item['item_expire_details'] as List;
+        print('DEBUG: Loading existing item_expire_details: $existingExpireDetails');
+        
+        // Clear existing data
+        _item_expire_details.clear();
+        
+        // Load existing expire details
+        for (int i = 0; i < existingExpireDetails.length; i++) {
+          final detail = existingExpireDetails[i];
+          DateTime expireDate;
+          try {
+            expireDate = DateTime.parse(detail['expire_date']);
+          } catch (e) {
+            expireDate = _selected_date;
+          }
+          
+          _item_expire_details.add({
+            'index': i,
+            'expire_date': expireDate,
+            'barcode': detail['barcode'] ?? _barcode_controller.text,
+            'item_img': detail['item_img'],
+          });
+          print('DEBUG: Loaded expire detail for item $i: ${_format_date(expireDate)}');
+        }
+        
+        // ถ้ามีมากกว่า 1 ชิ้น ให้เปิดใช้งาน multiple expire dates
+        if (_item_expire_details.length > 1) {
+          _use_multiple_expire_dates = true;
+          print('DEBUG: Enabled multiple expire dates mode');
+        }
+      }
+      
+      // โหลดข้อมูล item_locations (พื้นที่จัดเก็บหลายแห่ง) ถ้ามี
+      if (item['storage_locations'] != null) {
+        final existingStorageLocations = item['storage_locations'] as List;
+        print('DEBUG: Loading existing storage_locations: $existingStorageLocations');
+        
+        // Clear existing data
+        _item_locations.clear();
+        
+        // Load existing storage locations ยกเว้นพื้นที่หลัก
+        String mainAreaName = '';
+        int mainAreaQuantity = 0;
+        
+        // หาพื้นที่หลักและคำนวณจำนวนที่กระจาย
+        for (final locationData in existingStorageLocations) {
+          if (locationData['is_main'] == true || locationData['is_main'] == 1) {
+            mainAreaName = locationData['area_name'] ?? '';
+            mainAreaQuantity = locationData['quantity'] ?? 1;
+            print('DEBUG: Found main storage area: $mainAreaName (${mainAreaQuantity} ชิ้น)');
+          } else {
+            _item_locations.add({
+              'area_id': locationData['area_id'],
+              'area_name': locationData['area_name'],
+              'quantity': locationData['quantity'] ?? 1,
+            });
+            print('DEBUG: Loaded additional storage location: ${locationData['area_name']} (${locationData['quantity']} ชิ้น)');
+          }
+        }
+        
+        // ถ้าไม่มีพื้นที่หลัก ให้เอาพื้นที่แรกเป็นหลัก
+        if (mainAreaName.isEmpty && existingStorageLocations.isNotEmpty) {
+          final firstLocation = existingStorageLocations.first;
+          mainAreaName = firstLocation['area_name'] ?? '';
+          mainAreaQuantity = 1; // กำหนดให้พื้นที่หลักมี 1 ชิ้น
+          
+          // ลบพื้นที่แรกออกจาก _item_locations และปรับจำนวน
+          if (_item_locations.isNotEmpty && _item_locations.first['area_name'] == mainAreaName) {
+            final removedLocation = _item_locations.removeAt(0);
+            final originalQty = removedLocation['quantity'] as int;
+            
+ 
+            if (originalQty > 1) {
+              _item_locations.insert(0, {
+                'area_id': removedLocation['area_id'],
+                'area_name': removedLocation['area_name'],
+                'quantity': originalQty - 1,
+              });
+            }
+          }
+          
+          print('DEBUG: No main area found, using first location as main: $mainAreaName (${mainAreaQuantity} ชิ้น)');
+        }
+        
+        // ตั้งค่าพื้นที่หลักถ้าพบ
+        if (mainAreaName.isNotEmpty) {
+          _selected_storage = mainAreaName;
+          print('DEBUG: Main storage area set to: $mainAreaName');
+        }
+        
+        // ถ้ามีการกระจายพื้นที่เก็บ ให้เปิดใช้งาน multiple locations
+        if (_item_locations.isNotEmpty) {
+          _use_multiple_locations = true;
+          _enable_multiple_locations_option = true;
+          print('DEBUG: Enabled multiple locations mode');
+          
+          // คำนวณ remaining quantity
+          _update_remaining_quantity();
+        }
+      }
+      
       // ไม่เติมรูปภาพเดิม (_picked_image) เพราะต้องเลือกใหม่
     }
     // ป้องกัน error dropdown: ตรวจสอบ unit เท่านั้นตอนนี้
@@ -110,6 +223,20 @@ class _AddItemPageState extends State<AddItemPage> {
           _selected_unit = 'วันหมดอายุ(EXP)';
         });
       }
+      
+      // ตั้งค่าหมวดหมู่อีกครั้งหลังจากที่ _categories โหลดเสร็จแล้ว
+      if (widget.is_existing_item && _temp_category_from_item_data != null) {
+        // ใช้ Future.delayed เพื่อให้แน่ใจว่า _categories โหลดเสร็จแล้ว
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _categories.contains(_temp_category_from_item_data!) && _temp_category_from_item_data!.isNotEmpty) {
+            setState(() {
+              _selected_category = _temp_category_from_item_data!;
+            });
+            print('DEBUG: Delayed PostFrameCallback - Category set to: $_selected_category');
+          }
+        });
+      }
+      
       // Check if multiple locations should be enabled
       _check_multiple_locations_availability();
     });
@@ -152,13 +279,14 @@ class _AddItemPageState extends State<AddItemPage> {
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
         final loadedCategories = ['เลือกประเภท'] + data.map((e) => e['type_name'] as String).toList();
+        print('DEBUG: Loaded categories: $loadedCategories');
         setState(() {
           _categories = loadedCategories;
           // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิม ให้เลือก category ตามข้อมูลเดิม
           if (widget.is_existing_item && widget.item_data != null) {
-            final itemCat = widget.item_data!['category'] ?? widget.item_data!['type_name'] ?? '';
-            print('DEBUG: Setting category from item_data: $itemCat');
-            if (_categories.contains(itemCat)) {
+            final itemCat = _temp_category_from_item_data ?? '';
+            print('DEBUG: Setting category from temp data: $itemCat');
+            if (_categories.contains(itemCat) && itemCat.isNotEmpty) {
               _selected_category = itemCat;
               print('DEBUG: Category set to: $_selected_category');
             } else {
@@ -201,14 +329,24 @@ class _AddItemPageState extends State<AddItemPage> {
           final storageNames = _storage_locations.map((e) => e['area_name'] as String).toList();
           // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิม ให้เลือก storage ตามข้อมูลเดิม
           if (widget.is_existing_item && widget.item_data != null) {
-            final itemStorage = widget.item_data!['storage_location'] ?? widget.item_data!['area_name'] ?? '';
-            print('DEBUG: Setting storage from item_data: $itemStorage');
-            if (storageNames.contains(itemStorage)) {
-              _selected_storage = itemStorage;
-              print('DEBUG: Storage set to: $_selected_storage');
-            } else {
-              _selected_storage = 'เลือกพื้นที่จัดเก็บ';
-              print('DEBUG: Storage not found in list, using default');
+            // ไม่ใช้ข้อมูลจาก storage_location ที่เป็น string รวม เพราะจะตั้งจาก storage_locations แล้ว
+            // เฉพาะกรณีที่ไม่มี storage_locations ถึงจะใช้ storage_location
+            if (widget.item_data!['storage_locations'] == null) {
+              final itemStorage = widget.item_data!['storage_location'] ?? widget.item_data!['area_name'] ?? '';
+              print('DEBUG: Setting storage from single location: $itemStorage');
+              if (storageNames.contains(itemStorage)) {
+                _selected_storage = itemStorage;
+                print('DEBUG: Single storage set to: $_selected_storage');
+              } else {
+                _selected_storage = 'เลือกพื้นที่จัดเก็บ';
+                print('DEBUG: Single storage not found in list, using default');
+              }
+            }
+            // หมายเหตุ: สำหรับ multiple locations, _selected_storage จะถูกตั้งค่าใน initState แล้ว
+            
+            // ถ้าเป็นโหมดแก้ไขและมีการใช้ multiple locations ให้อัปเดต remaining quantity
+            if (_use_multiple_locations && _item_locations.isNotEmpty) {
+              _update_remaining_quantity();
             }
           } else {
             if (!storageNames.contains(_selected_storage)) {
@@ -259,6 +397,10 @@ class _AddItemPageState extends State<AddItemPage> {
     setState(() {
       if (quantity >= 2) {
         _enable_multiple_locations_option = true;
+        // เมื่อจำนวนมากกว่า 1 ให้เปิดใช้งานการกรอกวันหมดอายุแต่ละชิ้น
+        _use_multiple_expire_dates = true;
+        _initialize_expire_details();
+        
         // ถ้าเปิดใช้งานตัวเลือกแล้ว ให้อัปเดต remaining quantity
         if (_use_multiple_locations) {
           _update_remaining_quantity();
@@ -266,10 +408,54 @@ class _AddItemPageState extends State<AddItemPage> {
       } else {
         _enable_multiple_locations_option = false;
         _use_multiple_locations = false;
+        _use_multiple_expire_dates = false;
         _item_locations.clear();
+        _item_expire_details.clear();
         _remaining_quantity = 0;
       }
     });
+  }
+
+  void _initialize_expire_details() {
+    final quantity = int.tryParse(_quantity_controller.text) ?? 0;
+    
+    print('DEBUG: _initialize_expire_details called with quantity: $quantity');
+    print('DEBUG: Current _item_expire_details length: ${_item_expire_details.length}');
+    print('DEBUG: Is edit mode: ${widget.is_existing_item}');
+    
+    // ถ้าเป็นโหมดแก้ไขและมีข้อมูลเดิมอยู่แล้ว และจำนวนไม่เปลี่ยน ไม่ต้องทำอะไร
+    if (widget.is_existing_item && _item_expire_details.length == quantity && quantity > 0) {
+      print('DEBUG: Edit mode with existing data, skipping initialization');
+      return;
+    }
+    
+    // ถ้าจำนวนใหม่มากกว่าจำนวนเดิม ให้เพิ่ม
+    if (quantity > _item_expire_details.length) {
+      for (int i = _item_expire_details.length; i < quantity; i++) {
+        _item_expire_details.add({
+          'index': i,
+          'expire_date': _selected_date, // เริ่มต้นด้วยวันเดียวกัน
+          'barcode': _barcode_controller.text,
+          'item_img': null,
+        });
+        print('DEBUG: Added expire detail for item $i');
+      }
+    }
+    // ถ้าจำนวนใหม่น้อยกว่าจำนวนเดิม ให้ลด
+    else if (quantity < _item_expire_details.length) {
+      _item_expire_details.removeRange(quantity, _item_expire_details.length);
+      print('DEBUG: Removed expire details, new length: ${_item_expire_details.length}');
+    }
+    
+    print('DEBUG: Final _item_expire_details length: ${_item_expire_details.length}');
+  }
+
+  void _update_expire_date(int index, DateTime date) {
+    if (index < _item_expire_details.length) {
+      setState(() {
+        _item_expire_details[index]['expire_date'] = date;
+      });
+    }
   }
 
   void _update_remaining_quantity() {
@@ -279,16 +465,41 @@ class _AddItemPageState extends State<AddItemPage> {
       (sum, location) => sum + (location['quantity'] as int? ?? 0)
     );
     
-    // คำนวณจำนวนที่เหลือ โดยลบจำนวนที่กระจายในหลายพื้นที่
-    // และลบ 1 ชิ้นสำหรับพื้นที่หลักที่เลือกไว้แล้ว (ถ้ามี)
-    int usedInMainLocation = 0;
-    if (_selected_storage != 'เลือกพื้นที่จัดเก็บ') {
-      usedInMainLocation = 1;
-    }
+    // คำนวณจำนวนที่เหลือสำหรับการกระจายเพิ่มเติม
+    // ในพื้นที่หลักจะมีจำนวน = totalQuantity - distributedQuantity (ต้องมีอย่างน้อย 1)
+    final mainLocationQuantity = totalQuantity - distributedQuantity;
     
     setState(() {
-      _remaining_quantity = totalQuantity - distributedQuantity - usedInMainLocation;
+      // remaining quantity สำหรับการกระจายเพิ่มเติม
+      if (mainLocationQuantity > 1) {
+        // ถ้าในพื้นที่หลักมีมากกว่า 1 ชิ้น สามารถกระจายเพิ่มได้
+        _remaining_quantity = mainLocationQuantity - 1; // เก็บ 1 ชิ้นไว้ในพื้นที่หลัก
+      } else {
+        _remaining_quantity = 0;
+      }
+      
+      // ตรวจสอบว่าไม่ได้กระจายเกินจำนวนที่มี
+      if (mainLocationQuantity < 1) {
+        // ถ้ากระจายเกิน ให้ปรับลดจำนวนใน location สุดท้าย
+        final excess = 1 - mainLocationQuantity;
+        if (_item_locations.isNotEmpty) {
+          final lastLocation = _item_locations.last;
+          final currentQty = lastLocation['quantity'] as int;
+          final newQty = (currentQty - excess).clamp(1, currentQty);
+          lastLocation['quantity'] = newQty;
+          
+          // คำนวณใหม่หลังจากปรับ
+          final newDistributedQuantity = _item_locations.fold<int>(
+            0, 
+            (sum, location) => sum + (location['quantity'] as int? ?? 0)
+          );
+          final newMainQuantity = totalQuantity - newDistributedQuantity;
+          _remaining_quantity = (newMainQuantity - 1).clamp(0, totalQuantity);
+        }
+      }
     });
+    
+    print('DEBUG: Total: $totalQuantity, Distributed: $distributedQuantity, Main area will have: ${totalQuantity - distributedQuantity}, Remaining for distribution: $_remaining_quantity');
   }
 
   void _toggle_multiple_locations(bool value) {
@@ -328,7 +539,7 @@ class _AddItemPageState extends State<AddItemPage> {
       String areaName = loc['area_name'];
       // Check if this area is already used
       bool alreadyUsed = _item_locations.any((item) => item['area_name'] == areaName);
-      if (!alreadyUsed) {
+      if (!alreadyUsed && areaName != _selected_storage) { // ไม่ซ้ำกับพื้นที่หลัก
         defaultArea = areaName;
         defaultAreaId = loc['area_id'];
         break;
@@ -337,15 +548,25 @@ class _AddItemPageState extends State<AddItemPage> {
     
     // If no available area found, use the first valid area
     if (defaultArea.isEmpty && availableLocations.isNotEmpty) {
-      defaultArea = availableLocations.first['area_name'];
-      defaultAreaId = availableLocations.first['area_id'];
+      for (var loc in availableLocations) {
+        if (loc['area_name'] != _selected_storage) {
+          defaultArea = loc['area_name'];
+          defaultAreaId = loc['area_id'];
+          break;
+        }
+      }
+    }
+    
+    if (defaultArea.isEmpty) {
+      _show_error_message('ไม่มีพื้นที่จัดเก็บอื่นที่สามารถใช้ได้');
+      return;
     }
     
     setState(() {
       _item_locations.add({
         'area_id': defaultAreaId,
         'area_name': defaultArea,
-        'quantity': 1,
+        'quantity': 1, // เริ่มต้นด้วย 1 ชิ้น
       });
       _update_remaining_quantity();
     });
@@ -470,7 +691,7 @@ class _AddItemPageState extends State<AddItemPage> {
   Future<void> _confirm_delete_storage_dialog(String area_name) async {
     return showDialog<void>(
       context: context,
-      barrierDismissible: false, // User must tap button!
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('ยืนยันการลบ'),
@@ -496,6 +717,34 @@ class _AddItemPageState extends State<AddItemPage> {
     );
   }
 
+  // NEW: Function to show confirmation dialog for deleting area with disposed/expired items
+  Future<bool> _show_delete_confirmation_dialog(String area_name) async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('คำเตือน'),
+          content: Text(
+            'คุณต้องการลบพื้นที่จัดเก็บ "$area_name" ใช่หรือไม่?\n\n'
+            'เนื่องจากคุณเคยบันทึกสินค้าที่หมดอายุ (expired) หรือทิ้งแล้ว (disposed) ในพื้นที่นี้'
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('ลบ', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+
   // NEW: Function to delete a storage location
   Future<void> _delete_storage_location(String area_name) async {
     if (_current_user_id == null) {
@@ -508,6 +757,78 @@ class _AddItemPageState extends State<AddItemPage> {
     });
 
     try {
+      // ตรวจสอบสถานะของ items ในพื้นที่ก่อนลบ
+      final requestBody = json.encode({
+        'area_name': area_name,
+        'user_id': _current_user_id.toString(),
+      });
+      
+      print('DEBUG: Sending request to check_area_status.php');
+      print('DEBUG: Request body: $requestBody');
+      print('DEBUG: area_name: $area_name');
+      print('DEBUG: user_id: $_current_user_id');
+      
+      final checkResponse = await http.post(
+        Uri.parse('$_api_base_url/check_area_status.php'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
+      );
+
+      if (checkResponse.statusCode == 200) {
+        final responseBody = utf8.decode(checkResponse.bodyBytes);
+        print('DEBUG: Check response body: $responseBody');
+        
+        try {
+          final checkData = json.decode(responseBody);
+          
+          if (checkData['status'] == 'error') {
+            setState(() {
+              _is_loading = false;
+            });
+            _show_error_message('Error: ${checkData['message']}');
+            return;
+          }
+          
+          if (checkData['has_active_items'] == true) {
+            setState(() {
+              _is_loading = false;
+            });
+            _show_error_message('ไม่สามารถลบพื้นที่นี้ได้ เนื่องจากยังมีสินค้าที่ใช้งานอยู่ (active) ในพื้นที่นี้');
+            return;
+          }
+          
+          if (checkData['has_disposed_or_expired_items'] == true) {
+            setState(() {
+              _is_loading = false;
+            });
+            
+            // แสดง dialog เตือนผู้ใช้
+            bool shouldDelete = await _show_delete_confirmation_dialog(area_name);
+            if (!shouldDelete) {
+              return;
+            }
+            
+            setState(() {
+              _is_loading = true;
+            });
+          }
+        } catch (e) {
+          setState(() {
+            _is_loading = false;
+          });
+          _show_error_message('เกิดข้อผิดพลาดในการประมวลผลข้อมูล: $e\nResponse: $responseBody');
+          return;
+        }
+      } else {
+        setState(() {
+          _is_loading = false;
+        });
+        _show_error_message('เกิดข้อผิดพลาดในการตรวจสอบสถานะพื้นที่: ${checkResponse.statusCode}');
+        return;
+      }
+
       final response = await http.post(
         Uri.parse('$_api_base_url/delete_area.php'),
         headers: {
@@ -551,6 +872,17 @@ class _AddItemPageState extends State<AddItemPage> {
       if (_selected_category == 'เลือกประเภท') {
         _show_error_message('กรุณาเลือกประเภทสินค้า');
         return false;
+      }
+      
+      // ตรวจสอบวันหมดอายุแต่ละชิ้น (ถ้ามีมากกว่า 1 ชิ้น)
+      if (_use_multiple_expire_dates && _item_expire_details.isNotEmpty) {
+        for (int i = 0; i < _item_expire_details.length; i++) {
+          final detail = _item_expire_details[i];
+          if (detail['expire_date'] == null) {
+            _show_error_message('กรุณากรอกวันหมดอายุของชิ้นที่ ${i + 1}');
+            return false;
+          }
+        }
       }
       
       if (_use_multiple_locations && _enable_multiple_locations_option) {
@@ -652,18 +984,22 @@ class _AddItemPageState extends State<AddItemPage> {
       _is_loading = true;
     });
     try {
-      // สำหรับการสแกนบาร์โค้ดของสินค้าที่มีอยู่ ให้ใช้ add_item.php เสมอ
-      // เพราะเราเพิ่มสินค้าใหม่โดยใช้ข้อมูลเดิมเป็นต้นแบบ
-      final apiUrl = '$_api_base_url/add_item.php';
+      // ปรับให้รองรับโหมดแก้ไข (edit) และเพิ่ม (add)
+      final bool isEditMode = widget.is_existing_item && widget.item_data != null && widget.item_data!['item_id'] != null;
+      final String apiUrl = isEditMode
+          ? '$_api_base_url/edit_item.php'
+          : '$_api_base_url/add_item.php';
       print('DEBUG: API URL: $apiUrl');
-      
+
       var request = http.MultipartRequest(
         'POST',
         Uri.parse(apiUrl),
       );
 
-      // ไม่ต้องส่ง item_id เพราะเป็นการเพิ่มใหม่เสมอ
-      // แม้ว่าจะใช้ข้อมูลเดิมเป็นต้นแบบ
+      // ถ้าเป็นโหมดแก้ไข ให้ส่ง item_id เดิมไปด้วย
+      if (isEditMode) {
+        request.fields['item_id'] = widget.item_data!['item_id'].toString();
+      }
 
       request.fields['name'] = _name_controller.text;
       request.fields['quantity'] = _quantity_controller.text;
@@ -676,21 +1012,114 @@ class _AddItemPageState extends State<AddItemPage> {
 
       // Handle multiple locations or single location
       if (_use_multiple_locations && _enable_multiple_locations_option && _item_locations.isNotEmpty) {
-        // Send multiple locations data
+        // Send multiple locations data with expire details
         request.fields['use_multiple_locations'] = 'true';
-        request.fields['item_locations'] = json.encode(_item_locations);
         
+        print('DEBUG: Total quantity = ${_quantity_controller.text}');
+        print('DEBUG: _item_expire_details.length = ${_item_expire_details.length}');
+        print('DEBUG: _item_locations.length = ${_item_locations.length}');
+        
+        // เพิ่มข้อมูลวันหมดอายุแต่ละชิ้นในแต่ละพื้นที่
+        List<Map<String, dynamic>> locationsWithDetails = [];
+        
+        // เพิ่มพื้นที่หลักก่อน (main location)
+        int? mainAreaId;
+        for (var loc in _storage_locations) {
+          if (loc['area_name'] == _selected_storage) {
+            mainAreaId = loc['area_id'] is int ? loc['area_id'] : int.tryParse(loc['area_id'].toString());
+            break;
+          }
+        }
+        
+        // คำนวณจำนวนในพื้นที่หลัก
+        final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+        final distributedQuantity = _item_locations.fold<int>(
+          0, 
+          (sum, location) => sum + (location['quantity'] as int? ?? 0)
+        );
+        final mainLocationQuantity = totalQuantity - distributedQuantity;
+        
+        print('DEBUG: Main location quantity = $mainLocationQuantity');
+        
+        if (mainLocationQuantity > 0 && mainAreaId != null) {
+          Map<String, dynamic> mainLocationData = {
+            'area_id': mainAreaId,
+            'area_name': _selected_storage,
+            'quantity': mainLocationQuantity,
+            'details': []
+          };
+          
+          // เพิ่มข้อมูลวันหมดอายุสำหรับพื้นที่หลัก
+          for (int i = 0; i < mainLocationQuantity && i < _item_expire_details.length; i++) {
+            final detail = _item_expire_details[i];
+            print('DEBUG: Adding main location detail $i: expire_date = ${detail['expire_date']}');
+            mainLocationData['details'].add({
+              'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
+              'barcode': detail['barcode'] ?? _barcode_controller.text,
+              'item_img': detail['item_img'],
+              'quantity': 1,
+              'notification_days': _notification_days_controller.text,
+              'status': 'active'
+            });
+          }
+          
+          locationsWithDetails.add(mainLocationData);
+          print('DEBUG: Main location details: ${mainLocationData['details']}');
+        }
+        
+        // เพิ่มพื้นที่เพิ่มเติม
+        for (var location in _item_locations) {
+          Map<String, dynamic> locationData = {
+            'area_id': location['area_id'],
+            'area_name': location['area_name'],
+            'quantity': location['quantity'],
+            'details': []
+          };
+          
+          // กระจายวันหมดอายุตามจำนวนในแต่ละพื้นที่
+          int locationQuantity = location['quantity'] ?? 0;
+          int currentDetailIndex = 0;
+          
+          // หาจำนวนสินค้าที่ถูกใช้ไปแล้วในพื้นที่ก่อนหน้า
+          for (int j = 0; j < locationsWithDetails.length; j++) {
+            currentDetailIndex += (locationsWithDetails[j]['details'] as List).length;
+          }
+          
+          print('DEBUG: Processing additional location ${location['area_name']}, quantity: $locationQuantity, starting from detail index: $currentDetailIndex');
+          
+          for (int i = 0; i < locationQuantity && currentDetailIndex < _item_expire_details.length; i++) {
+            final detail = _item_expire_details[currentDetailIndex];
+            print('DEBUG: Adding additional detail $currentDetailIndex: expire_date = ${detail['expire_date']}');
+            locationData['details'].add({
+              'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
+              'barcode': detail['barcode'] ?? _barcode_controller.text,
+              'item_img': detail['item_img'],
+              'quantity': 1,
+              'notification_days': _notification_days_controller.text,
+              'status': 'active'
+            });
+            currentDetailIndex++;
+          }
+          
+          // Debug: พิมพ์ข้อมูลของแต่ละ location
+          print('DEBUG: Additional location ${location['area_name']} details: ${locationData['details']}');
+          
+          locationsWithDetails.add(locationData);
+        }
+        
+        request.fields['item_locations'] = json.encode(locationsWithDetails);
+
         // For backward compatibility, use the first location as primary
         request.fields['storage_location'] = _item_locations[0]['area_name'];
         if (_item_locations[0]['area_id'] != null) {
           request.fields['storage_id'] = _item_locations[0]['area_id'].toString();
         }
-        print('DEBUG: Using multiple locations');
-        print('DEBUG: item_locations: ${json.encode(_item_locations)}');
+        print('DEBUG: Using multiple locations with expire details');
+        print('DEBUG: item_locations: ${json.encode(locationsWithDetails)}');
       } else {
-        // Single location (original behavior)
+        // Single location (original behavior) with multiple expire dates
         request.fields['storage_location'] = _selected_storage;
-        
+
         // หา area_id จากชื่อพื้นที่จัดเก็บที่เลือก
         int? areaId;
         for (var loc in _storage_locations) {
@@ -702,6 +1131,38 @@ class _AddItemPageState extends State<AddItemPage> {
         if (areaId != null) {
           request.fields['storage_id'] = areaId.toString();
         }
+        
+        // ส่งข้อมูลวันหมดอายุแต่ละชิ้นสำหรับ single location
+        if (_use_multiple_expire_dates && _item_expire_details.isNotEmpty) {
+          List<Map<String, dynamic>> expireDetails = [];
+          for (var detail in _item_expire_details) {
+            expireDetails.add({
+              'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
+              'barcode': detail['barcode'] ?? _barcode_controller.text,
+              'item_img': detail['item_img'],
+              'quantity': 1,
+              'notification_days': _notification_days_controller.text,
+              'status': 'active'
+            });
+          }
+          
+          // Debug: พิมพ์ข้อมูลที่จะส่งไป
+          print('DEBUG: Sending expire details: $expireDetails');
+          
+          // ส่งเป็น single location แต่มี multiple expire details
+          request.fields['item_locations'] = json.encode([{
+            'area_id': areaId,
+            'area_name': _selected_storage,
+            'quantity': _item_expire_details.length,
+            'details': expireDetails
+          }]);
+          request.fields['use_multiple_locations'] = 'true';
+        } else {
+          // กรณีสินค้า 1 ชิ้น หรือไม่ได้เปิดใช้ multiple expire dates
+          // ไม่ส่ง item_locations, ใช้ข้อมูลพื้นฐานใน items table เท่านั้น
+          request.fields['use_multiple_locations'] = 'false';
+        }
+        
         print('DEBUG: Using single location');
         print('DEBUG: storage_location: $_selected_storage');
         print('DEBUG: storage_id (area_id): $areaId');
@@ -735,10 +1196,10 @@ class _AddItemPageState extends State<AddItemPage> {
         print('DEBUG: Response body: $response_body');
         final response_data = json.decode(response_body);
         print('DEBUG: Parsed response: $response_data');
-        
+
         if (response_data['status'] == 'success') {
           print('DEBUG: Success! Item saved successfully');
-          _show_success_message('บันทึกข้อมูลสินค้าสำเร็จแล้ว!');
+          _show_success_message(isEditMode ? 'แก้ไขข้อมูลสินค้าสำเร็จแล้ว!' : 'บันทึกข้อมูลสินค้าสำเร็จแล้ว!');
           if (widget.on_item_added != null) {
             widget.on_item_added!();
           }
@@ -752,7 +1213,6 @@ class _AddItemPageState extends State<AddItemPage> {
         print('DEBUG: HTTP error ${response.statusCode}: $error_body');
         _show_error_message('Server error: ${response.statusCode} - $error_body');
       }
-    // Remove duplicate/invalid code after finally
     } catch (e) {
       print('DEBUG: Exception occurred: $e');
       _show_error_message('เกิดข้อผิดพลาด: $e');
@@ -989,48 +1449,177 @@ class _AddItemPageState extends State<AddItemPage> {
                       const SizedBox(height: 24),
                       _build_section_title('วัน'),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: _build_dropdown(
-                              value: _units.contains(_selected_unit) ? _selected_unit : 'วันหมดอายุ(EXP)',
-                              items: _units,
-                              onChanged: (value) {
-                                setState(() {
-                                  _selected_unit = value!;
-                                });
-                              },
-                            ),
+                      
+                      // กรณีสินค้ามากกว่า 1 ชิ้น ให้แสดงตัวเลือกกรอกวันหมดอายุแยกแต่ละชิ้น
+                      if (_use_multiple_expire_dates && _item_expire_details.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.orange[200]!),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: _select_date,
-                              child: Container(
-                                height: 48,
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey[300]!),
-                                  borderRadius: BorderRadius.circular(8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.calendar_today, color: Colors.orange[600], size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'กรอกวันหมดอายุแต่ละชิ้น',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.orange[800],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'เนื่องจากสินค้ามีมากกว่า 1 ชิ้น กรุณากรอกวันหมดอายุของแต่ละชิ้น',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange[600],
                                 ),
-                                child: Row(
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // List วันหมดอายุแต่ละชิ้น
+                        ...List.generate(int.tryParse(_quantity_controller.text) ?? 0, (index) {
+                          // ตรวจสอบว่ามีข้อมูลใน _item_expire_details หรือไม่
+                          final bool hasDetail = index < _item_expire_details.length;
+                          final detail = hasDetail ? _item_expire_details[index] : null;
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey[300]!),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.grey[50],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'ชิ้นที่ ${index + 1}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
                                   children: [
-                                    const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                                    const SizedBox(width: 8),
                                     Expanded(
-                                      child: Text(
-                                        _format_date(_selected_date),
-                                        style: const TextStyle(fontSize: 14),
+                                      flex: 2,
+                                      child: _build_dropdown(
+                                        value: _units.contains(_selected_unit) ? _selected_unit : 'วันหมดอายุ(EXP)',
+                                        items: _units,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _selected_unit = value!;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      flex: 3,
+                                      child: GestureDetector(
+                                        onTap: () async {
+                                          final DateTime? picked = await showDatePicker(
+                                            context: context,
+                                            initialDate: hasDetail && detail != null && detail['expire_date'] != null
+                                                ? detail['expire_date']
+                                                : _selected_date,
+                                            firstDate: DateTime(2000),
+                                            lastDate: DateTime(2101),
+                                          );
+                                          if (picked != null) {
+                                            _update_expire_date(index, picked);
+                                          }
+                                        },
+                                        child: Container(
+                                          height: 40,
+                                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                                          decoration: BoxDecoration(
+                                            border: Border.all(color: Colors.grey[300]!),
+                                            borderRadius: BorderRadius.circular(8),
+                                            color: Colors.white,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  hasDetail && detail != null && detail['expire_date'] != null
+                                                      ? _format_date(detail['expire_date'])
+                                                      : _format_date(_selected_date),
+                                                  style: const TextStyle(fontSize: 13),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ] else ...[
+                        // กรณีสินค้า 1 ชิ้น ใช้ UI เดิม
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: _build_dropdown(
+                                value: _units.contains(_selected_unit) ? _selected_unit : 'วันหมดอายุ(EXP)',
+                                items: _units,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selected_unit = value!;
+                                  });
+                                },
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: _select_date,
+                                child: Container(
+                                  height: 48,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: Colors.grey[300]!),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _format_date(_selected_date),
+                                          style: const TextStyle(fontSize: 14),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       _build_section_title('หมวดหมู่'),
                       const SizedBox(height: 12),
@@ -1088,7 +1677,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                       IconButton(
                                         icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
                                         onPressed: () {
-                                          Navigator.pop(context); // Close dropdown
+                                          Navigator.pop(context); 
                                           _confirm_delete_storage_dialog(item);
                                         },
                                         padding: EdgeInsets.zero,
@@ -1183,13 +1772,26 @@ class _AddItemPageState extends State<AddItemPage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             _build_section_title('กระจายสินค้าไปพื้นที่เพิ่มเติม'),
-                            Text(
-                              'เหลือ: $_remaining_quantity ชิ้น',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: _remaining_quantity > 0 ? Colors.orange : Colors.green,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'กระจายได้อีก: $_remaining_quantity ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _remaining_quantity > 0 ? Colors.orange : Colors.green,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'พื้นที่หลัก: ${(int.tryParse(_quantity_controller.text) ?? 0) - _item_locations.fold<int>(0, (sum, loc) => sum + (loc['quantity'] as int? ?? 0))} ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),

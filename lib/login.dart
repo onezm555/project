@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'request_otp_page.dart';
+import 'verify_code_page.dart';
 import 'register.dart';
 import 'main_layout.dart';
-import 'forgot_password.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -28,7 +28,7 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
-    _loadSavedLogin(); // โหลดข้อมูลล็อกอินที่บันทึกไว้
+    _loadSavedLogin();
   }
 
   @override
@@ -75,14 +75,18 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (mounted) {
+        final responseData = jsonDecode(response.body);
+        
+        // Debug: พิมพ์ response เพื่อดู
+        print('Response Status Code: ${response.statusCode}');
+        print('Response Data: $responseData');
+        
         if (response.statusCode == 200) {
-          final responseData = jsonDecode(response.body);
-
           if (responseData['status'] == 'success' &&
               responseData['user_id'] != null) {
             final int userId = responseData['user_id'];
-            final String userName = responseData['name'] ?? 'Guest'; // ดึงชื่อผู้ใช้
-            final String? userImgUrl = responseData['profile_image_url']; // ดึง URL รูปโปรไฟล์
+            final String userName = responseData['name'] ?? 'Guest';
+            final String? userImgUrl = responseData['profile_image_url'];
 
             SharedPreferences prefs = await SharedPreferences.getInstance();
             await prefs.setInt('user_id', userId);
@@ -117,13 +121,19 @@ class _LoginPageState extends State<LoginPage> {
             );
           }
         } else {
-          final errorData = jsonDecode(response.body);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorData['message'] ?? 'เข้าสู่ระบบไม่สำเร็จ'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          // ตรวจสอบว่าเป็นกรณี unverified หรือไม่ (ไม่ขึ้นกับ status code)
+          print('Checking unverified status: ${responseData['status']}'); // Debug เพิ่ม
+          if (responseData['status'] == 'unverified') {
+            print('Email from response: ${responseData['email']}'); // Debug เพิ่ม
+            _showUnverifiedDialog(responseData['email']);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(responseData['message'] ?? 'เข้าสู่ระบบไม่สำเร็จ'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -144,24 +154,146 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  void _showUnverifiedDialog(String email) {
+    print('Showing unverified dialog for email: $email'); // Debug
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false, // ไม่ให้ปิดโดยการแตะข้างนอก
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text(
+            'ยืนยันอีเมล',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: const Text(
+            'คุณยังไม่ได้ยืนยันอีเมล คุณต้องการส่งรหัสและยืนยันใหม่หรือไม่?',
+            style: TextStyle(fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // ปิด dialog
+              },
+              child: const Text(
+                'ยกเลิก',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop(); // ปิด dialog
+                
+                // แสดง loading dialog ขณะส่งรหัส
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (BuildContext context) {
+                    return const AlertDialog(
+                      content: Row(
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(width: 20),
+                          Text('กำลังส่งรหัสยืนยัน...'),
+                        ],
+                      ),
+                    );
+                  },
+                );
+                
+                // ส่งรหัสยืนยันทันที
+                await _sendVerificationCode(email);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('ส่งรหัสใหม่'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _sendVerificationCode(String email) async {
+    try {
+      final String apiUrl = '$_api_base_url/send_otp.php';
+      
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(<String, String>{
+          'email': email,
+        }),
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop(); // ปิด loading dialog
+        
+        if (response.statusCode == 200) {
+          final responseData = jsonDecode(response.body);
+          
+          if (responseData['status'] == 'success') {
+            // ส่งรหัสสำเร็จ - นำทางไปหน้า verify
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(responseData['message'] ?? 'ส่งรหัสยืนยันสำเร็จ'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+            
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => VerifyCodePage(email: email),
+              ),
+            );
+          } else {
+            // ส่งรหัสไม่สำเร็จ
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(responseData['message'] ?? 'ไม่สามารถส่งรหัสได้'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        } else {
+          // Server error
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('เกิดข้อผิดพลาดในการส่งรหัส'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // ปิด loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   void _navigate_to_register() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const RegisterPage()),
-    );
-  }
-
-  Future<void> _logout() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.remove('user_id');
-    await prefs.remove('user_name'); // ลบชื่อผู้ใช้ด้วย
-    await prefs.remove('user_img'); // ลบรูปโปรไฟล์ด้วย
-    // ถ้าต้องการลบ email/password ที่บันทึกไว้ด้วย ให้ uncomment ด้านล่าง
-    // await prefs.remove('saved_email');
-    // await prefs.remove('saved_password');
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
     );
   }
 

@@ -269,18 +269,17 @@ Future<void> _pickAndUploadImage() async {
     final url = Uri.parse('${_apiBaseUrl}upload_profile_image.php');
     print('[DEBUG] _changePassword: url = $url');
     try {
-      var request = http.MultipartRequest('POST', url);
-      request.fields['user_id'] = userId;
-      request.fields['old_password'] = oldPassword;
-      request.fields['password'] = newPassword;
-      // ไม่ต้องแนบไฟล์ profile_image ถ้าไม่เปลี่ยนรูป
-
-      print('[DEBUG] _changePassword: sending fields = ' + request.fields.toString());
-      var streamedResponse = await request.send();
-      print('[DEBUG] _changePassword: response.statusCode = ${streamedResponse.statusCode}');
-      final respStr = await streamedResponse.stream.bytesToString();
-      print('[DEBUG] _changePassword: response.body = $respStr');
-      final responseData = json.decode(respStr);
+      final response = await http.post(
+        url,
+        body: {
+          'user_id': userId,
+          'old_password': oldPassword,
+          'password': newPassword,
+        },
+      );
+      print('[DEBUG] _changePassword: response.statusCode = ${response.statusCode}');
+      print('[DEBUG] _changePassword: response.body = ${response.body}');
+      final responseData = json.decode(response.body);
       if (responseData['status'] == 'success') {
         _showSnackBar('เปลี่ยนรหัสผ่านสำเร็จ', Colors.green);
         _oldPasswordController.clear();

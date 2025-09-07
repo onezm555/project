@@ -182,7 +182,7 @@ class IndexPageState extends State<IndexPage> {
                                   const Icon(Icons.info_outline, color: Colors.grey, size: 40),
                                   const SizedBox(height: 10),
                                   const Text(
-                                    'ไม่พบรายการสินค้า',
+                                    'ไม่พบรายการสิ่งของคุณกรุณาเพิ่มสิ่งของใหม่เพื่อเก็บเป็นวันหมดอายุ',
                                     style: TextStyle(color: Colors.grey, fontSize: 16),
                                   ),
                                 ],
@@ -241,6 +241,7 @@ class IndexPageState extends State<IndexPage> {
                 'storage_locations': item['storage_locations'], // ส่งข้อมูลละเอียดไปด้วย
                 'item_date': item['item_date'],
                 'item_img': item['item_img_full_url'],
+                'item_expire_details': item['item_expire_details'] ?? [], // ส่งข้อมูลรายละเอียดแต่ละชิ้น
               },
             ),
           ),
@@ -332,13 +333,13 @@ class IndexPageState extends State<IndexPage> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              _format_expire_date(item['item_date'] ?? '', days_left, date_type),
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: status_color,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            // แสดงวันหมดอายุ - ถ้ามีข้อมูลแต่ละชิ้นให้แสดงสรุป
+                            _build_expire_date_display(
+                              item['item_date'] ?? '',
+                              days_left,
+                              date_type,
+                              item['item_expire_details'] ?? [],
+                              status_color,
                             ),
                           ],
                         ),
@@ -402,6 +403,125 @@ class IndexPageState extends State<IndexPage> {
         ),
       ),
     );
+  }
+
+  // Widget สำหรับแสดงวันหมดอายุ - รองรับทั้งแบบเดี่ยวและหลายชิ้น
+  Widget _build_expire_date_display(
+    String main_expire_date,
+    int days_left,
+    String date_type,
+    List<dynamic> expire_details,
+    Color status_color,
+  ) {
+    // Debug: พิมพ์ข้อมูล expire_details ที่ได้รับ
+    if (expire_details.isNotEmpty) {
+      print('DEBUG: expire_details = $expire_details');
+    }
+    
+    // ถ้ามีข้อมูลวันหมดอายุแต่ละชิ้น
+    if (expire_details.isNotEmpty) {
+      // เรียงข้อมูลตามวันหมดอายุ
+      List<DateTime> all_dates = [];
+      for (var detail in expire_details) {
+        try {
+          final date = DateTime.parse(detail['expire_date']);
+          all_dates.add(date);
+          print('DEBUG: Parsed date = $date from ${detail['expire_date']}');
+        } catch (e) {
+          print('DEBUG: Failed to parse date ${detail['expire_date']}: $e');
+          // ข้ามวันที่ที่ไม่ถูกต้อง
+        }
+      }
+      
+      if (all_dates.isEmpty) {
+        // ถ้าไม่มีวันที่ถูกต้อง ใช้ค่าเดิม
+        return Text(
+          _format_expire_date(main_expire_date, days_left, date_type),
+          style: TextStyle(
+            fontSize: 14,
+            color: status_color,
+            fontWeight: FontWeight.w500,
+          ),
+        );
+      }
+      
+      // เรียงวันที่จากเร็วไปช้า
+      all_dates.sort();
+      print('DEBUG: Sorted dates = $all_dates');
+      
+      final earliest_date = all_dates.first;
+      final earliest_days_left = earliest_date.difference(DateTime.now()).inDays;
+      final earliest_status_info = _get_status_info(earliest_days_left);
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _format_expire_date(earliest_date.toIso8601String(), earliest_days_left, date_type),
+            style: TextStyle(
+              fontSize: 14,
+              color: earliest_status_info['color'],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (all_dates.length > 1) ...[
+            const SizedBox(height: 2),
+            _build_additional_dates_display(all_dates.skip(1).toList()),
+          ],
+        ],
+      );
+    }
+    
+    // ใช้ข้อมูลเดิม (ถ้าไม่มีข้อมูลแต่ละชิ้น)
+    return Text(
+      _format_expire_date(main_expire_date, days_left, date_type),
+      style: TextStyle(
+        fontSize: 14,
+        color: status_color,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  // ฟังก์ชันสำหรับแสดงวันหมดอายุเพิ่มเติม
+  Widget _build_additional_dates_display(List<DateTime> additional_dates) {
+    if (additional_dates.isEmpty) return const SizedBox.shrink();
+    
+    // แสดงวันที่สูงสุด 3 วันที่ถัดไป
+    final dates_to_show = additional_dates.take(3).toList();
+    final remaining_count = additional_dates.length - dates_to_show.length;
+    
+    String dates_text = dates_to_show.map((date) {
+      return _format_date_short(date);
+    }).join(', ');
+    
+    String display_text = 'และอีก ${additional_dates.length} ชิ้น';
+    if (dates_to_show.isNotEmpty) {
+      display_text += ' ($dates_text';
+      if (remaining_count > 0) {
+        display_text += ', +$remaining_count';
+      }
+      display_text += ')';
+    }
+    
+    return Text(
+      display_text,
+      style: TextStyle(
+        fontSize: 12,
+        color: Colors.grey[600],
+        fontStyle: FontStyle.italic,
+      ),
+    );
+  }
+
+  // ฟังก์ชันสำหรับจัดรูปแบบวันที่แบบสั้น
+  String _format_date_short(DateTime date) {
+    final months = [
+      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+    ];
+    
+    return '${date.day} ${months[date.month - 1]} ${(date.year + 543).toString().substring(2)}';
   }
 
   String _format_expire_date(String expire_date, int days_left, String date_type) {

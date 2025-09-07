@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http; // เพิ่ม package http
 import 'dart:convert'; // เพิ่ม dart:convert สำหรับ JSON encoding/decoding
-import 'success_register_page.dart'; // ตรวจสอบว่าไฟล์นี้มีอยู่จริง
-import 'main_layout.dart'; // หรือหน้าที่คุณต้องการให้ไปหลังจากยืนยันสำเร็จ
+import 'login.dart'; // เพิ่ม import สำหรับหน้าล็อกอิน
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่มบรรทัดนี้เพื่อใช้ dotenv
 
 class VerifyCodePage extends StatefulWidget {
@@ -33,7 +32,141 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
     super.dispose();
   }
 
-  // ฟังก์ชันสำหรับจัดการการยืนยันโค้ด
+  @override
+  void initState() {
+    super.initState();
+    // ไม่ส่งอีเมลอัตโนมัติ ให้ผู้ใช้กดปุ่ม "ส่งรหัสใหม่" เองเมื่อต้องการ
+  }
+
+  // ฟังก์ชันสำหรับส่งอีเมลยืนยันใหม่
+  Future<void> _sendVerificationEmail() async {
+    // ใช้ API send_otp.php ที่เพิ่งสร้าง
+    final String apiUrl = '${dotenv.env['API_BASE_URL']}/send_otp.php';
+
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(<String, String>{
+          'email': widget.email,
+        }),
+      );
+
+      if (mounted) {
+        final responseData = jsonDecode(response.body);
+        if (response.statusCode == 200) {
+          print('Verification email sent successfully to ${widget.email}');
+          print('Debug OTP Code: ${responseData['debug_code']}'); // สำหรับการทดสอบ
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('รหัสยืนยันถูกส่งไปยัง ${widget.email} แล้ว\nรหัส: ${responseData['debug_code']}'), // แสดงรหัสสำหรับทดสอบ
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 5), // แสดงนานขึ้นเพื่อให้เห็นรหัส
+            ),
+          );
+        } else {
+          print('Failed to send verification email: ${responseData['message']}');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(responseData['message'] ?? 'ไม่สามารถส่งรหัสยืนยันได้'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error sending verification email: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ฟังก์ชันสำหรับอัปเดต is_verified เป็น 1 โดยตรง
+  Future<void> _bypass_verification() async {
+    setState(() {
+      _is_loading = true;
+    });
+
+    final String apiUrl = '${dotenv.env['API_BASE_URL']}/verify_code.php';
+
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(<String, String>{
+          'email': widget.email,
+          'action': 'bypass_verification' // บอกให้ API รู้ว่าต้องการอัปเดต is_verified เป็น 1
+        }),
+      );
+
+      if (mounted) {
+        final responseData = jsonDecode(response.body);
+        if (response.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(responseData['message'] ?? 'ยืนยันอีเมลสำเร็จ'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          // นำทางไปหน้าล็อกอิน
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const LoginPage(),
+            ),
+            (route) => false, // ลบ stack ทั้งหมด
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(responseData['message'] ?? 'เกิดข้อผิดพลาดในการยืนยัน'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _is_loading = false;
+        });
+      }
+    }
+  }
+
+  // ฟังก์ชันสำหรับส่งรหัสใหม่
+  Future<void> _resend_code() async {
+    setState(() {
+      _is_loading = true;
+    });
+
+    await _sendVerificationEmail();
+
+    if (mounted) {
+      setState(() {
+        _is_loading = false;
+      });
+    }
+  }
   Future<void> _handle_verify_code() async {
     // รวมรหัสจากแต่ละช่องเป็นสตริงเดียว
     String enteredCode = _code_controllers.map((c) => c.text).join();
@@ -78,12 +211,13 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
               backgroundColor: Colors.green,
             ),
           );
-          // นำทางไปหน้าสำเร็จการลงทะเบียน หรือหน้าหลัก
-          Navigator.pushReplacement(
+          // นำทางไปหน้าล็อกอินเพื่อให้สามารถเข้าสู่ระบบได้เลย
+          Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (context) => const SuccessRegisterPage(), // หรือ MainLayout()
+              builder: (context) => const LoginPage(),
             ),
+            (route) => false, // ลบ stack ทั้งหมด
           );
         } else {
           // ยืนยันไม่สำเร็จ (มีข้อผิดพลาดจาก PHP)
@@ -122,6 +256,15 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
+        title: const Text(
+          'ยืนยันอีเมล',
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
           onPressed: () => Navigator.pop(context),
@@ -138,7 +281,7 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'ใส่รหัสยืนยันของคุณที่ส่งไปยังอีเมลของคุณ',
+              'เราได้ทำการส่งหรัส 6 หลักไปยังอีเมล์คุณแล้ว\nแล้วกรอกในช่องด้านล่าง',
               style: TextStyle(fontSize: 14, color: Colors.grey),
               textAlign: TextAlign.center,
             ),
@@ -154,8 +297,8 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
                     focusNode: _focus_nodes[index],
                     keyboardType: TextInputType.number,
                     maxLength: 1,
-                    textAlign: TextAlign.center, // จัดข้อความให้อยู่ตรงกลาง
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold), // ทำให้รหัสตัวใหญ่ขึ้น
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       counterText: "",
                       enabledBorder: OutlineInputBorder(
@@ -198,7 +341,7 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                onPressed: _is_loading ? null : _handle_verify_code, // ผูกกับฟังก์ชัน API
+                onPressed: _is_loading ? null : _handle_verify_code, 
                 child: _is_loading
                     ? const SizedBox(
                         width: 20,
@@ -212,21 +355,6 @@ class _VerifyCodePageState extends State<VerifyCodePage> {
                         'ยืนยัน',
                         style: TextStyle(fontSize: 16, color: Colors.white),
                       ),
-              ),
-            ),
-            // ปุ่ม "ส่งรหัสใหม่" (ถ้าต้องการ)
-            TextButton(
-              onPressed: _is_loading ? null : () {
-                // TODO: Implement resend code logic (เรียก API ไปยัง register.php เพื่อส่งโค้ดใหม่)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('ฟังก์ชันส่งรหัสใหม่ยังไม่พร้อมใช้งาน'),
-                  ),
-                );
-              },
-              child: const Text(
-                'ส่งรหัสใหม่',
-                style: TextStyle(color: Colors.blueAccent),
               ),
             ),
           ],

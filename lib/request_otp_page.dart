@@ -6,7 +6,9 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'forgot_password.dart'; // Import the ConfirmOtpAndResetPasswordPage
 
 class RequestOtpPage extends StatefulWidget {
-  const RequestOtpPage({Key? key}) : super(key: key);
+  final String? email; // เพิ่ม parameter สำหรับอีเมลที่ส่งมา
+  
+  const RequestOtpPage({Key? key, this.email}) : super(key: key);
 
   @override
   State<RequestOtpPage> createState() => _RequestOtpPageState();
@@ -22,6 +24,11 @@ class _RequestOtpPageState extends State<RequestOtpPage> {
   void initState() {
     super.initState();
     _apiBaseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
+    
+    // ถ้ามีอีเมลที่ส่งมา ให้ใส่ลงใน text field
+    if (widget.email != null) {
+      _emailController.text = widget.email!;
+    }
   }
 
   @override

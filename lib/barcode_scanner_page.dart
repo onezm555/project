@@ -3,7 +3,6 @@ import 'package:simple_barcode_scanner/simple_barcode_scanner.dart';
 
 class BarcodeScannerPage extends StatefulWidget {
   const BarcodeScannerPage({Key? key}) : super(key: key);
-
   @override
   State<BarcodeScannerPage> createState() => _BarcodeScannerPageState();
 }

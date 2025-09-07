@@ -213,9 +213,10 @@ class _ImgToTxtPageState extends State<ImgToTxtPage> {
             responseData['responses'].isNotEmpty &&
             responseData['responses'][0]['textAnnotations'] != null) {
 
-          // ดึงข้อความที่สแกนได้
+          // ดึงข้อความที่สแกนได้และแปลงให้เป็นแถวเดียว
           final String detectedText = responseData['responses'][0]['textAnnotations'][0]['description'] ?? '';
-          return detectedText;
+          final String singleLineText = detectedText.replaceAll('\n', '').trim();
+          return singleLineText;
         } else {
           return 'ไม่พบข้อความในภาพ';
         }

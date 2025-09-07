@@ -8,6 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:async'; // เพิ่ม import สำหรับ Timer
 
 class NotificationPage extends StatefulWidget {
   const NotificationPage({Key? key}) : super(key: key);
@@ -20,6 +21,18 @@ class _NotificationPageState extends State<NotificationPage> {
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoading = true;
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  Set<String> _sentNotifications = {}; // เก็บรายการการแจ้งเตือนที่ส่งไปแล้ว
+  Timer? _periodicTimer; // เพิ่มตัวแปรสำหรับการตรวจสอบอัตโนมัติ
+  // ฟังก์ชันรีเซ็ตการแจ้งเตือน (ลบ sent_notifications)
+  Future<void> _resetNotifications() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove('sent_notifications');
+    _sentNotifications.clear();
+    await _fetch_notifications();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('รีเซ็ตการแจ้งเตือนเรียบร้อย')),
+    );
+  }
 
 
   @override
@@ -27,7 +40,268 @@ class _NotificationPageState extends State<NotificationPage> {
     super.initState();
     _initializeNotifications();
     _requestNotificationPermission();
+    _loadSentNotifications();
     _fetch_notifications();
+    _startPeriodicNotificationCheck(); // เริ่มการตรวจสอบอัตโนมัติ
+  }
+
+  @override
+  void dispose() {
+    _periodicTimer?.cancel(); // ยกเลิก Timer เมื่อ dispose
+    super.dispose();
+  }
+
+  // ฟังก์ชันโหลดรายการการแจ้งเตือนที่ส่งแล้วจาก SharedPreferences
+  Future<void> _loadSentNotifications() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      List<String>? sentList = prefs.getStringList('sent_notifications');
+      
+      if (sentList != null) {
+        _sentNotifications = sentList.toSet();
+        
+        // ทำความสะอาดข้อมูลเก่าหลังจากโหลด
+        _cleanupOldNotifications();
+        await _saveSentNotifications();
+      }
+    } catch (e) {
+      // ข้อผิดพลาดในการโหลด
+    }
+  }
+
+  // ฟังก์ชันบันทึกรายการการแจ้งเตือนที่ส่งแล้วลง SharedPreferences
+  Future<void> _saveSentNotifications() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('sent_notifications', _sentNotifications.toList());
+    } catch (e) {
+      // ข้อผิดพลาดในการบันทึก
+    }
+  }
+
+  // ฟังก์ชันเริ่มการตรวจสอบอัตโนมัติ
+  void _startPeriodicNotificationCheck() {
+    // ตรวจสอบทุก 30 วินาที
+    _periodicTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _checkAndSendNotifications();
+    });
+    
+    // ตรวจสอบทันทีเมื่อเริ่มต้น
+    _checkAndSendNotifications();
+  }
+
+  // ฟังก์ชันตรวจสอบและส่งการแจ้งเตือนอัตโนมัติ
+  Future<void> _checkAndSendNotifications() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      final int? userId = prefs.getInt('user_id');
+      
+      if (userId == null) {
+        return;
+      }
+
+      final String apiUrl = '${dotenv.env['API_BASE_URL']}/calendar_items.php?user_id=$userId';
+      final response = await http.get(Uri.parse(apiUrl));
+      
+      if (response.statusCode != 200) {
+        return;
+      }
+      
+      final responseData = jsonDecode(utf8.decode(response.bodyBytes));
+      
+      if (responseData['success'] != true) {
+        return;
+      }
+      
+      final items = responseData['data'] as List;
+      final now = DateTime.now();
+      
+      for (var item in items) {
+        try {
+          // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสินค้าที่มีมากกว่า 1 ชิ้น)
+          if (item['item_expire_details'] != null && 
+              (item['item_expire_details'] as List).isNotEmpty) {
+            
+            // กรณีสินค้ามีรายละเอียดแต่ละชิ้น
+            final List<dynamic> expire_details = item['item_expire_details'];
+            
+            for (int index = 0; index < expire_details.length; index++) {
+              final detail = expire_details[index];
+              final expireDate = DateTime.parse(detail['expire_date']);
+              final notifyDays = detail['notification_days'] ?? 
+                               item['item_notification'] ?? 
+                               item['notification_days'] ?? 3;
+              final notifyDate = expireDate.subtract(Duration(days: notifyDays));
+              final daysLeft = expireDate.difference(now).inDays;
+              
+              // เช็คว่าควรแจ้งเตือนหรือไม่
+              final shouldNotify = now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)));
+              
+              if (shouldNotify) {
+                final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
+                final itemName = item['item_name'] ?? 'สินค้าไม่ระบุชื่อ';
+                final areaName = detail['area_name'] ?? item['area_name'] ?? '';
+                
+                // สร้าง unique key สำหรับแต่ละการแจ้งเตือน (item_id + detail_index + วันที่)
+                final notificationKey = '${itemId}_${index}_${now.year}-${now.month}-${now.day}';
+                
+                // เช็คว่าเคยส่งการแจ้งเตือนในวันนี้แล้วหรือไม่
+                if (_sentNotifications.contains(notificationKey)) {
+                  continue;
+                }
+                
+                final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+                final isBBF = dateType == 'BBF';
+                
+                String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+                String message;
+                
+                if (isBBF) {
+                  message = daysLeft < 0
+                      ? '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) เลยวันควรบริโภคแล้ว'
+                      : '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) ควรบริโภคในอีก $daysLeft วัน';
+                } else {
+                  message = daysLeft < 0
+                      ? '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) หมดอายุแล้ว'
+                      : '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) จะหมดอายุในอีก $daysLeft วัน';
+                }
+                
+                // ส่งการแจ้งเตือนทันที
+                try {
+                  await flutterLocalNotificationsPlugin.show(
+                    itemId + 10000 + index, // เพิ่ม offset และ index เพื่อไม่ซ้ำกับการแจ้งเตือนอื่น
+                    title,
+                    message,
+                    const NotificationDetails(
+                      android: AndroidNotificationDetails(
+                        'auto_expire_channel',
+                        'แจ้งเตือนสินค้าอัตโนมัติ',
+                        channelDescription: 'แจ้งเตือนสินค้าที่ถึงเวลาอัตโนมัติ',
+                        importance: Importance.max,
+                        priority: Priority.high,
+                        showWhen: true,
+                      ),
+                    ),
+                  );
+                  
+                  // เพิ่ม key ลงในรายการที่ส่งแล้ว
+                  _sentNotifications.add(notificationKey);
+                  await _saveSentNotifications(); // บันทึกลง SharedPreferences
+                  
+                } catch (e) {
+                  // การแจ้งเตือนล้มเหลว ไม่ต้องทำอะไร
+                }
+              }
+            }
+          } else {
+            final expireDate = DateTime.parse(item['item_date']);
+            final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
+            final notifyDate = expireDate.subtract(Duration(days: notifyDays));
+            final daysLeft = expireDate.difference(now).inDays;
+            
+            // เช็คว่าควรแจ้งเตือนหรือไม่
+            final shouldNotify = now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)));
+            
+            if (shouldNotify) {
+              final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
+              final itemName = item['item_name'] ?? 'สินค้าไม่ระบุชื่อ';
+              
+              // สร้าง unique key สำหรับแต่ละการแจ้งเตือน (item_id + วันที่)
+              final notificationKey = '${itemId}_${now.year}-${now.month}-${now.day}';
+              
+              // เช็คว่าเคยส่งการแจ้งเตือนในวันนี้แล้วหรือไม่
+              if (_sentNotifications.contains(notificationKey)) {
+                continue;
+              }
+              
+              final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+              final isBBF = dateType == 'BBF';
+              
+              String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+              String message;
+              
+              if (isBBF) {
+                message = daysLeft < 0
+                    ? '$itemName เลยวันควรบริโภคแล้ว'
+                    : '$itemName ควรบริโภคในอีก $daysLeft วัน';
+              } else {
+                message = daysLeft < 0
+                    ? '$itemName หมดอายุแล้ว'
+                    : '$itemName จะหมดอายุในอีก $daysLeft วัน';
+              }
+              
+              // ส่งการแจ้งเตือนทันที
+              try {
+                await flutterLocalNotificationsPlugin.show(
+                  itemId + 10000, // เพิ่ม offset เพื่อไม่ซ้ำกับการแจ้งเตือนอื่น
+                  title,
+                  message,
+                  const NotificationDetails(
+                    android: AndroidNotificationDetails(
+                      'auto_expire_channel',
+                      'แจ้งเตือนสินค้าอัตโนมัติ',
+                      channelDescription: 'แจ้งเตือนสินค้าที่ถึงเวลาอัตโนมัติ',
+                      importance: Importance.max,
+                      priority: Priority.high,
+                      showWhen: true,
+                    ),
+                  ),
+                );
+                
+                // เพิ่ม key ลงในรายการที่ส่งแล้ว
+                _sentNotifications.add(notificationKey);
+                await _saveSentNotifications(); // บันทึกลง SharedPreferences
+                
+              } catch (e) {
+                // การแจ้งเตือนล้มเหลว ไม่ต้องทำอะไร
+              }
+            }
+          }
+        } catch (e) {
+          // ข้อผิดพลาดในการประมวลผลรายการ
+        }
+      }
+      
+      // ทำความสะอาดรายการการแจ้งเตือนเก่า (เก็บไว้แค่ 7 วัน)
+      await _cleanupOldNotifications();
+      
+    } catch (e) {
+      // ข้อผิดพลาดในการตรวจสอบอัตโนมัติ
+    }
+  }
+
+  // ฟังก์ชันทำความสะอาดรายการการแจ้งเตือนเก่า
+  Future<void> _cleanupOldNotifications() async {
+    final now = DateTime.now();
+    final cutoffDate = now.subtract(const Duration(days: 7));
+    final initialCount = _sentNotifications.length;
+    
+    // ลบ notification keys ที่เก่ากว่า 7 วัน
+    _sentNotifications.removeWhere((key) {
+      try {
+        final parts = key.split('_');
+        if (parts.length == 2) {
+          final dateParts = parts[1].split('-');
+          if (dateParts.length == 3) {
+            final notificationDate = DateTime(
+              int.parse(dateParts[0]), // year
+              int.parse(dateParts[1]), // month
+              int.parse(dateParts[2]), // day
+            );
+            return notificationDate.isBefore(cutoffDate);
+          }
+        }
+        return false;
+      } catch (e) {
+        // ถ้า parse ไม่ได้ให้ลบออก
+        return true;
+      }
+    });
+    
+    // บันทึกข้อมูลหลังจากทำความสะอาดถ้ามีการเปลี่ยนแปลง
+    if (initialCount != _sentNotifications.length) {
+      await _saveSentNotifications();
+    }
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -41,11 +315,10 @@ class _NotificationPageState extends State<NotificationPage> {
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       
       if (plugin != null) {
-        final bool? granted = await plugin.requestExactAlarmsPermission();
-        debugPrint('[NOTI] Exact alarms permission granted: $granted');
+        await plugin.requestExactAlarmsPermission();
       }
     } catch (e) {
-      debugPrint('[NOTI] Error requesting exact alarms permission: $e');
+      // ข้อผิดพลาดในการขอสิทธิ์
     }
   }
 
@@ -61,91 +334,161 @@ class _NotificationPageState extends State<NotificationPage> {
     setState(() {
       _isLoading = true;
     });
+    
+    // ล้างรายการการแจ้งเตือนที่ส่งแล้วเมื่อรีเฟรช เพื่อให้สามารถแจ้งเตือนได้ใหม่หากต้องการ
+    await _cleanupOldNotifications();
+    
     SharedPreferences prefs = await SharedPreferences.getInstance();
     final int? userId = prefs.getInt('user_id');
-    debugPrint('[NOTI] userId: $userId');
     if (userId == null) {
       setState(() {
         _notifications = [];
         _isLoading = false;
       });
-      debugPrint('[NOTI] No userId found, abort fetch');
       return;
     }
-    final String apiUrl = '${dotenv.env['API_BASE_URL']}/notification_check.php?user_id=$userId&check_only=true';
-    debugPrint('[NOTI] Fetching from: $apiUrl');
+    
+    // ใช้ calendar_items.php แทน notification_check.php เพื่อให้ได้ข้อมูลครบถ้วน
+    final String apiUrl = '${dotenv.env['API_BASE_URL']}/calendar_items.php?user_id=$userId';
     try {
       final response = await http.get(Uri.parse(apiUrl));
-      debugPrint('[NOTI] API status: ${response.statusCode}');
       if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        debugPrint('[NOTI] API response: $responseData');
+        final responseData = jsonDecode(utf8.decode(response.bodyBytes));
         if (responseData['success'] == true) {
           List<Map<String, dynamic>> notiList = [];
           final now = DateTime.now();
+          
           for (var item in responseData['data']) {
-            final expireDate = DateTime.parse(item['item_date']);
-            final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
-            final notifyDate = expireDate.subtract(Duration(days: notifyDays));
-            final daysLeft = expireDate.difference(now).inDays;
-            debugPrint('[NOTI] Item: ${item['item_name']} | expire: $expireDate | notifyDays: $notifyDays | notifyDate: $notifyDate | daysLeft: $daysLeft');
-            // Schedule local notification
-            _scheduleNotification(item, notifyDate, daysLeft);
-            if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
-              // ตรวจสอบประเภทวันที่ (EXP หรือ BBF)
-              final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
-              final isBBF = dateType == 'BBF';
+            // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสินค้าที่มีมากกว่า 1 ชิ้น)
+            if (item['item_expire_details'] != null && 
+                (item['item_expire_details'] as List).isNotEmpty) {
               
-              String description;
-              String dateLabel;
+              // กรณีสินค้ามีรายละเอียดแต่ละชิ้น
+              final List<dynamic> expire_details = item['item_expire_details'];
               
-              if (isBBF) {
-                description = daysLeft < 0
-                    ? 'เลยวันควรบริโภคแล้ว'
-                    : 'ควรบริโภคในอีก ${daysLeft} วัน';
-                dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
-              } else {
-                description = daysLeft < 0
-                    ? 'หมดอายุแล้ว'
-                    : 'จะหมดอายุในอีก ${daysLeft} วัน';
-                dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+              for (int index = 0; index < expire_details.length; index++) {
+                final detail = expire_details[index];
+                final expireDate = DateTime.parse(detail['expire_date']);
+                final notifyDays = detail['notification_days'] ?? 
+                                 item['item_notification'] ?? 
+                                 item['notification_days'] ?? 3;
+                final notifyDate = expireDate.subtract(Duration(days: notifyDays));
+                final daysLeft = expireDate.difference(now).inDays;
+                
+                // Schedule local notification
+                _scheduleIndividualNotification(item, detail, index, notifyDate, daysLeft);
+                
+                // เช็คว่าควรแสดงการแจ้งเตือนหรือไม่
+                if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
+                  // ตรวจสอบประเภทวันที่ (EXP หรือ BBF)
+                  final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+                  final isBBF = dateType == 'BBF';
+                  final areaName = detail['area_name'] ?? item['area_name'] ?? '';
+                  
+                  String description;
+                  String dateLabel;
+                  
+                  if (isBBF) {
+                    description = daysLeft < 0
+                        ? 'เลยวันควรบริโภคแล้ว (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
+                        : 'ควรบริโภคในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})';
+                    dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+                  } else {
+                    description = daysLeft < 0
+                        ? 'หมดอายุแล้ว (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
+                        : 'จะหมดอายุในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})';
+                    dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+                  }
+                  
+                  // สร้างข้อมูลสำหรับแต่ละชิ้น
+                  Map<String, dynamic> individual_item = Map<String, dynamic>.from(item);
+                  individual_item['item_date'] = detail['expire_date'];
+                  individual_item['item_notification'] = notifyDays;
+                  individual_item['notification_days'] = notifyDays;
+                  individual_item['area_name'] = areaName;
+                  individual_item['storage_location'] = areaName;
+                  individual_item['item_number'] = detail['quantity'] ?? 1;
+                  individual_item['quantity'] = detail['quantity'] ?? 1;
+                  individual_item['expire_detail_id'] = detail['id'];
+                  individual_item['expire_detail'] = detail;
+                  
+                  notiList.add({
+                    'id': '${item['item_id']}_$index', // unique ID สำหรับแต่ละชิ้น
+                    'type': daysLeft <= 0 ? 'today' : 'stored',
+                    'title': '${item['item_name']} (ชิ้นที่ ${index + 1})',
+                    'description': description,
+                    'date': dateLabel,
+                    'is_expired': daysLeft < 0,
+                    'is_bbf': isBBF,
+                    'date_type': dateType,
+                    'created_at': now,
+                    'item_data': individual_item, // เก็บข้อมูลที่ปรับแล้วสำหรับชิ้นนี้
+                  });
+                }
               }
+            } else {
+              // กรณีสินค้าปกติ (1 ชิ้น หรือไม่มี item_expire_details)
+              final expireDate = DateTime.parse(item['item_date']);
+              final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
+              final notifyDate = expireDate.subtract(Duration(days: notifyDays));
+              final daysLeft = expireDate.difference(now).inDays;
               
-              notiList.add({
-                'id': item['item_id'],
-                'type': daysLeft <= 0 ? 'today' : 'stored',
-                'title': item['item_name'],
-                'description': description,
-                'date': dateLabel,
-                'is_expired': daysLeft < 0,
-                'is_bbf': isBBF,
-                'date_type': dateType,
-                'created_at': now,
-                'item_data': item, // เพิ่มข้อมูลดิบของสินค้า
-              });
+              // Schedule local notification
+              _scheduleNotification(item, notifyDate, daysLeft);
+              
+              // เช็คว่าควรแสดงการแจ้งเตือนหรือไม่
+              if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
+                // ตรวจสอบประเภทวันที่ (EXP หรือ BBF)
+                final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+                final isBBF = dateType == 'BBF';
+                
+                String description;
+                String dateLabel;
+                
+                if (isBBF) {
+                  description = daysLeft < 0
+                      ? 'เลยวันควรบริโภคแล้ว'
+                      : 'ควรบริโภคในอีก ${daysLeft} วัน';
+                  dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+                } else {
+                  description = daysLeft < 0
+                      ? 'หมดอายุแล้ว'
+                      : 'จะหมดอายุในอีก ${daysLeft} วัน';
+                  dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
+                }
+                
+                notiList.add({
+                  'id': item['item_id'],
+                  'type': daysLeft <= 0 ? 'today' : 'stored',
+                  'title': item['item_name'],
+                  'description': description,
+                  'date': dateLabel,
+                  'is_expired': daysLeft < 0,
+                  'is_bbf': isBBF,
+                  'date_type': dateType,
+                  'created_at': now,
+                  'item_data': item, // เก็บข้อมูลดิบของสินค้าจาก calendar_items.php
+                });
+              }
             }
           }
-          debugPrint('[NOTI] notiList.length: ${notiList.length}');
           setState(() {
             _notifications = notiList;
             _isLoading = false;
           });
         } else {
-          debugPrint('[NOTI] API success==false');
           setState(() {
             _notifications = [];
             _isLoading = false;
           });
         }
       } else {
-        debugPrint('[NOTI] API status != 200');
         setState(() {
           _notifications = [];
           _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint('[NOTI] Exception: $e');
       setState(() {
         _notifications = [];
         _isLoading = false;
@@ -159,46 +502,188 @@ class _NotificationPageState extends State<NotificationPage> {
     final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
     final isBBF = dateType == 'BBF';
     
-    debugPrint('[NOTI] _scheduleNotification: itemId=$itemId, notifyDate=$notifyDate, now=$now, daysLeft=$daysLeft, dateType=$dateType');
+    // สร้าง unique key สำหรับตรวจสอบการแจ้งเตือนซ้ำ
+    final notificationKey = '${itemId}_${now.year}-${now.month}-${now.day}';
     
-    if (notifyDate.isAfter(now)) {
+    // เช็คว่าเคยส่งการแจ้งเตือนในวันนี้แล้วหรือไม่
+    if (_sentNotifications.contains(notificationKey)) {
+      return;
+    }
+    
+    // ยกเลิกการแจ้งเตือนเก่าก่อน (ถ้ามี)
+    try {
+      await flutterLocalNotificationsPlugin.cancel(itemId);
+    } catch (e) {
+      // ข้อผิดพลาดในการยกเลิก
+    }
+    
+    String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+    String message;
+    
+    if (isBBF) {
+      message = daysLeft < 0
+          ? '${item['item_name']} เลยวันควรบริโภคแล้ว'
+          : '${item['item_name']} ควรบริโภคในอีก $daysLeft วัน';
+    } else {
+      message = daysLeft < 0
+          ? '${item['item_name']} หมดอายุแล้ว'
+          : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน';
+    }
+    
+    // ถ้าควรแจ้งเตือนแล้ว (ผ่านวันแจ้งเตือนแล้ว) ให้แจ้งทันที
+    if (now.isAfter(notifyDate) || now.isAtSameMomentAs(notifyDate)) {
       try {
-        String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
-        String message;
+        await flutterLocalNotificationsPlugin.show(
+          itemId,
+          title,
+          message,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'expire_immediate_channel',
+              'แจ้งเตือนสินค้าทันที',
+              channelDescription: 'แจ้งเตือนสินค้าที่ถึงเวลาแล้ว',
+              importance: Importance.max,
+              priority: Priority.high,
+              showWhen: true,
+            ),
+          ),
+        );
         
-        if (isBBF) {
-          message = daysLeft < 0
-              ? '${item['item_name']} เลยวันควรบริโภคแล้ว'
-              : '${item['item_name']} ควรบริโภคในอีก $daysLeft วัน';
-        } else {
-          message = daysLeft < 0
-              ? '${item['item_name']} หมดอายุแล้ว'
-              : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน';
-        }
+        // บันทึกว่าส่งการแจ้งเตือนแล้ว
+        _sentNotifications.add(notificationKey);
+        await _saveSentNotifications(); // บันทึกลง SharedPreferences
+      } catch (e) {
+        // ข้อผิดพลาดในการแสดงการแจ้งเตือน
+      }
+    } else {
+      // ถ้ายังไม่ถึงเวลา ให้ตั้งเวลาแจ้งเตือน
+      try {
+        // ตั้งเวลาแจ้งเตือนในวันที่กำหนด เวลา 09:00
+        final scheduledDate = DateTime(
+          notifyDate.year,
+          notifyDate.month,
+          notifyDate.day,
+          9, // 9 AM
+          0,
+          0,
+        );
         
         await flutterLocalNotificationsPlugin.zonedSchedule(
           itemId,
           title,
           message,
-          tz.TZDateTime.from(notifyDate, tz.getLocation('Asia/Bangkok')),
+          tz.TZDateTime.from(scheduledDate, tz.getLocation('Asia/Bangkok')),
           const NotificationDetails(
             android: AndroidNotificationDetails(
-              'expire_channel',
-              'แจ้งเตือนสินค้า',
-              channelDescription: 'แจ้งเตือนวันหมดอายุสินค้า',
+              'expire_scheduled_channel',
+              'แจ้งเตือนสินค้าตามกำหนด',
+              channelDescription: 'แจ้งเตือนวันหมดอายุสินค้าตามที่ตั้งไว้',
               importance: Importance.max,
               priority: Priority.high,
+              showWhen: true,
             ),
           ),
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          matchDateTimeComponents: DateTimeComponents.dateAndTime,
         );
-        debugPrint('[NOTI] zonedSchedule success for itemId=$itemId');
       } catch (e) {
-        debugPrint('[NOTI] zonedSchedule ERROR for itemId=$itemId: $e');
+        // ข้อผิดพลาดในการตั้งเวลา
+      }
+    }
+  }
+
+  Future<void> _scheduleIndividualNotification(Map<String, dynamic> item, Map<String, dynamic> detail, int index, DateTime notifyDate, int daysLeft) async {
+    final now = DateTime.now();
+    final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
+    final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
+    final isBBF = dateType == 'BBF';
+    final areaName = detail['area_name'] ?? item['area_name'] ?? '';
+    
+    // สร้าง unique key สำหรับตรวจสอบการแจ้งเตือนซ้ำ (รวม index เพื่อแยกแต่ละชิ้น)
+    final notificationKey = '${itemId}_${index}_${now.year}-${now.month}-${now.day}';
+    
+    // เช็คว่าเคยส่งการแจ้งเตือนในวันนี้แล้วหรือไม่
+    if (_sentNotifications.contains(notificationKey)) {
+      return;
+    }
+    
+    // ยกเลิกการแจ้งเตือนเก่าก่อน (ถ้ามี)
+    try {
+      await flutterLocalNotificationsPlugin.cancel(itemId + index * 1000); // ใช้ ID ที่แตกต่างกันสำหรับแต่ละชิ้น
+    } catch (e) {
+      // ข้อผิดพลาดในการยกเลิก
+    }
+    
+    String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+    String message;
+    
+    if (isBBF) {
+      message = daysLeft < 0
+          ? '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) เลยวันควรบริโภคแล้ว'
+          : '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) ควรบริโภคในอีก $daysLeft วัน';
+    } else {
+      message = daysLeft < 0
+          ? '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) หมดอายุแล้ว'
+          : '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) จะหมดอายุในอีก $daysLeft วัน';
+    }
+    
+    // ถ้าควรแจ้งเตือนแล้ว (ผ่านวันแจ้งเตือนแล้ว) ให้แจ้งทันที
+    if (now.isAfter(notifyDate) || now.isAtSameMomentAs(notifyDate)) {
+      try {
+        await flutterLocalNotificationsPlugin.show(
+          itemId + index * 1000, // ใช้ ID ที่แตกต่างกันสำหรับแต่ละชิ้น
+          title,
+          message,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'expire_immediate_individual_channel',
+              'แจ้งเตือนสินค้าแต่ละชิ้นทันที',
+              channelDescription: 'แจ้งเตือนสินค้าแต่ละชิ้นที่ถึงเวลาแล้ว',
+              importance: Importance.max,
+              priority: Priority.high,
+              showWhen: true,
+            ),
+          ),
+        );
+        
+        // บันทึกว่าส่งการแจ้งเตือนแล้ว
+        _sentNotifications.add(notificationKey);
+        await _saveSentNotifications(); // บันทึกลง SharedPreferences
+      } catch (e) {
+        // ข้อผิดพลาดในการแสดงการแจ้งเตือน
       }
     } else {
-      debugPrint('[NOTI] Not scheduling: notifyDate ($notifyDate) is not after now ($now)');
+      // ถ้ายังไม่ถึงเวลา ให้ตั้งเวลาแจ้งเตือน
+      try {
+        // ตั้งเวลาแจ้งเตือนในวันที่กำหนด เวลา 09:00 + index นาที เพื่อไม่ให้ซ้อนกัน
+        final scheduledDate = DateTime(
+          notifyDate.year,
+          notifyDate.month,
+          notifyDate.day,
+          9, // 9 AM
+          index, // เพิ่มนาทีตาม index เพื่อไม่ให้แจ้งเตือนพร้อมกัน
+          0,
+        );
+        
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          itemId + index * 1000, // ใช้ ID ที่แตกต่างกันสำหรับแต่ละชิ้น
+          title,
+          message,
+          tz.TZDateTime.from(scheduledDate, tz.getLocation('Asia/Bangkok')),
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'expire_scheduled_individual_channel',
+              'แจ้งเตือนสินค้าแต่ละชิ้นตามกำหนด',
+              channelDescription: 'แจ้งเตือนวันหมดอายุสินค้าแต่ละชิ้นตามที่ตั้งไว้',
+              importance: Importance.max,
+              priority: Priority.high,
+              showWhen: true,
+            ),
+          ),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+      } catch (e) {
+        // ข้อผิดพลาดในการตั้งเวลา
+      }
     }
   }
 
@@ -206,6 +691,16 @@ class _NotificationPageState extends State<NotificationPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('การแจ้งเตือน'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'รีเซ็ตการแจ้งเตือน',
+            onPressed: _resetNotifications,
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _notifications.isEmpty
@@ -219,12 +714,6 @@ class _NotificationPageState extends State<NotificationPage> {
                     ],
                   ),
                 ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _testApiNotification,
-        tooltip: 'การแจ้งเตือน',
-        backgroundColor: Colors.purple,
-        child: const Icon(Icons.api),
-      ),
     );
   }
 
@@ -326,51 +815,67 @@ class _NotificationPageState extends State<NotificationPage> {
       backgroundColor = is_bbf ? Colors.amber.withOpacity(0.1) : Colors.orange.withOpacity(0.1);
       statusIcon = is_bbf ? Icons.schedule_outlined : Icons.warning_outlined;
     }
+    
     return GestureDetector(
       onTap: () async {
-        // ดึงข้อมูลสินค้าทั้งหมดจาก _notifications หรือ fetch ใหม่จาก API ถ้าต้องการข้อมูลเต็ม
-        // ในที่นี้จะลอง fetch ใหม่จาก API เพื่อให้ได้ข้อมูลล่าสุดและครบถ้วน
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        final int? userId = prefs.getInt('user_id');
-        if (userId == null) return;
-        final String apiUrl = '${dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'}/my_items.php?user_id=$userId';
-        try {
-          final response = await http.get(Uri.parse(apiUrl));
-          if (response.statusCode == 200) {
-            final responseData = jsonDecode(response.body);
-            if (responseData['success'] == true) {
-              // หา item ที่ id ตรงกับ notification['id']
-              final item = (responseData['data'] as List).firstWhere(
-                (i) => i['item_id'].toString() == notification['id'].toString(),
-                orElse: () => null,
-              );
-              if (item != null) {
-                // ส่งข้อมูลครบถ้วนเหมือน index.dart
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ItemDetailPage(
-                      item_data: {
-                        'item_id': item['item_id'],
-                        'user_id': item['user_id'],
-                        'name': item['item_name'],
-                        'quantity': item['item_number'],
-                        'barcode': item['item_barcode'],
-                        'item_notification': item['item_notification'],
-                        'unit': item['date_type'] ?? item['unit'],
-                        'category': item['type_name'] ?? item['category'],
-                        'storage_location': item['area_name'] ?? item['storage_location'],
-                        'item_date': item['item_date'],
-                        'item_img': item['item_img_full_url'],
-                      },
-                    ),
-                  ),
-                );
-              }
-            }
-          }
-        } catch (e) {
-          // ไม่ต้องทำอะไรถ้า error
+        // ใช้ข้อมูลจาก notification['item_data'] ที่เก็บไว้แล้ว
+        final item_data = notification['item_data'];
+        if (item_data == null) return;
+        
+        // เตรียมข้อมูลให้ครบถ้วนสำหรับ ItemDetailPage (เหมือนใน calendar.dart)
+        Map<String, dynamic> itemDetailData = {
+          // ข้อมูลพื้นฐาน
+          'item_id': item_data['item_id'],
+          'id': item_data['item_id'], // เพิ่ม id สำรอง
+          'name': item_data['item_name'] ?? item_data['name'] ?? '',
+          'item_name': item_data['item_name'] ?? item_data['name'] ?? '',
+          'quantity': item_data['item_number'] ?? item_data['quantity'] ?? item_data['remaining_quantity'] ?? 1,
+          'item_number': item_data['item_number'] ?? item_data['quantity'] ?? 1,
+          'remaining_quantity': item_data['remaining_quantity'] ?? item_data['item_number'] ?? item_data['quantity'] ?? 1,
+          
+          // ข้อมูลหมวดหมู่และที่เก็บ
+          'category': item_data['category'] ?? item_data['type_name'] ?? 'ไม่ระบุ',
+          'type_name': item_data['type_name'] ?? item_data['category'] ?? 'ไม่ระบุ',
+          'storage_location': item_data['storage_location'] ?? item_data['area_name'] ?? 'ไม่ระบุ',
+          'area_name': item_data['area_name'] ?? item_data['storage_location'] ?? 'ไม่ระบุ',
+          
+          // ข้อมูลวันที่
+          'item_date': item_data['item_date'],
+          'date_type': item_data['date_type'] ?? 'EXP',
+          'unit': item_data['date_type'] ?? 'EXP',
+          
+          // ข้อมูลการแจ้งเตือน
+          'item_notification': item_data['item_notification'] ?? item_data['notification_days'] ?? 3,
+          'notification_days': item_data['notification_days'] ?? item_data['item_notification'] ?? 3,
+          
+          // ข้อมูลบาร์โค้ด
+          'barcode': item_data['item_barcode'] ?? item_data['barcode'] ?? '',
+          'item_barcode': item_data['item_barcode'] ?? item_data['barcode'] ?? '',
+          
+          // ข้อมูลผู้ใช้และสถานะ
+          'user_id': item_data['user_id'],
+          'item_status': item_data['item_status'] ?? 'active',
+          
+          // ข้อมูลรูปภาพ
+          'item_img': item_data['item_img_full_url'] ?? item_data['item_img'] ?? null,
+          
+          // ข้อมูลเพิ่มเติม
+          'storage_locations': item_data['storage_locations'] ?? [],
+          'item_expire_details': item_data['item_expire_details'] ?? [],
+          'used_quantity': item_data['used_quantity'] ?? 0,
+          'expired_quantity': item_data['expired_quantity'] ?? 0,
+        };
+        
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ItemDetailPage(
+              item_data: itemDetailData,
+            ),
+          ),
+        );
+        if (result == true) {
+          _fetch_notifications(); // รีเฟรชข้อมูลการแจ้งเตือน
         }
       },
       child: Container(
@@ -439,6 +944,38 @@ class _NotificationPageState extends State<NotificationPage> {
                   
                   const SizedBox(height: 4),
                   
+                  // แสดงพื้นที่จัดเก็บ (เหมือนใน calendar)
+                  if (notification['item_data'] != null)
+                    Builder(
+                      builder: (context) {
+                        final item_data = notification['item_data'];
+                        if ((item_data['storage_locations'] != null && (item_data['storage_locations'] as List).isNotEmpty)) {
+                          final locations = (item_data['storage_locations'] as List)
+                              .map((loc) => (loc is Map) ? (loc['area_name'] ?? '') : '')
+                              .where((name) => name.toString().isNotEmpty)
+                              .toSet()
+                              .join(', ');
+                          return Text(
+                            'จัดเก็บ: $locations',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          );
+                        } else {
+                          return Text(
+                            'จัดเก็บ: ${item_data['storage_location'] ?? item_data['area_name'] ?? 'ไม่ระบุ'}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  
+                  const SizedBox(height: 2),
+                  
                   // วันที่หมดอายุ
                   Text(
                     notification['date'],
@@ -454,123 +991,5 @@ class _NotificationPageState extends State<NotificationPage> {
         ),
       ),
     );
-  }
-
-  // ฟังก์ชันทดสอบการแจ้งเตือนจาก API
-  Future<void> _testApiNotification() async {
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      final int? userId = prefs.getInt('user_id');
-      
-      if (userId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ไม่พบ User ID'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      debugPrint('[TEST_API_NOTI] Testing API notification for user: $userId');
-      
-      final String apiUrl = '${dotenv.env['API_BASE_URL']}/notification_check.php?user_id=$userId&check_only=false';
-      debugPrint('[TEST_API_NOTI] API URL: $apiUrl');
-      
-      final response = await http.get(Uri.parse(apiUrl));
-      debugPrint('[TEST_API_NOTI] API Response status: ${response.statusCode}');
-      debugPrint('[TEST_API_NOTI] API Response body: ${response.body}');
-      
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        
-        if (responseData['success'] == true) {
-          final notifications = responseData['data'] as List;
-          final summary = responseData['summary'];
-          
-          // แสดงผลลัพธ์
-          String message = 'ผลการทดสอบ API:\n\n';
-          message += 'การแจ้งเตือนทั้งหมด: ${summary['total_notifications']}\n';
-          message += 'สินค้าหมดอายุแล้ว: ${summary['expired_items']}\n';
-          message += 'สินค้าใกล้หมดอายุ: ${summary['expiring_items']}\n\n';
-          
-          if (notifications.isNotEmpty) {
-            message += 'รายการที่ควรได้รับการแจ้งเตือน:\n';
-            for (var noti in notifications.take(5)) { // แสดงแค่ 5 รายการแรก
-              message += '• ${noti['item_name']} (${noti['notification_message']})\n';
-            }
-            if (notifications.length > 5) {
-              message += '... และอีก ${notifications.length - 5} รายการ\n';
-            }
-          } else {
-            message += 'ไม่มีสินค้าที่ควรได้รับการแจ้งเตือนในขณะนี้';
-          }
-          
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('ผลการทดสอบ API'),
-              content: SingleChildScrollView(
-                child: Text(message),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('ปิด'),
-                ),
-                if (notifications.isNotEmpty)
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _fetch_notifications(); // รีเฟรชข้อมูล
-                    },
-                    child: const Text('รีเฟรชการแจ้งเตือน'),
-                  ),
-              ],
-            ),
-          );
-          if (notifications.isNotEmpty) {
-            final firstNotification = notifications.first;
-            await flutterLocalNotificationsPlugin.show(
-              99997,
-              'การแจ้งเตือน: ${firstNotification['notification_title']}',
-              firstNotification['notification_message'],
-              const NotificationDetails(
-                android: AndroidNotificationDetails(
-                  'api_test_channel',
-                  'ทดสอบ API แจ้งเตือน',
-                  channelDescription: 'ช่องทดสอบการแจ้งเตือนจาก API',
-                  importance: Importance.max,
-                  priority: Priority.high,
-                ),
-              ),
-            );
-          }
-          
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('API Error: ${responseData['message'] ?? 'Unknown error'}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('HTTP Error: ${response.statusCode}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('[TEST_API_NOTI] Exception: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('ไม่สามารถทดสอบ API ได้: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }

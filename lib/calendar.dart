@@ -2,12 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // <--- (1) เพิ่ม import นี้
-import 'item_detail_page.dart'; // ตรวจสอบให้แน่ใจว่า path ถูกต้อง
-import 'add_item.dart';
-
-// URL พื้นฐานของ API ของคุณ (บรรทัดนี้ถูกลบแล้ว)
-// const String _api_base_url = 'http://10.192.168.1.176/project'; // <--- (2) บรรทัดนี้ถูกลบออกไป
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'item_detail_page.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({Key? key}) : super(key: key);
@@ -17,8 +13,8 @@ class CalendarPage extends StatefulWidget {
 }
 
 class _CalendarPageState extends State<CalendarPage> {
-  int _selected_year = DateTime.now().year; // ปีที่เลือกในโหมดปกติ
-  bool _show_only_expiry_months = false; // สวิตช์กรอง
+  int _selected_year = DateTime.now().year; 
+  bool _show_only_expiry_months = false; 
 
   Map<String, List<Map<String, dynamic>>> _all_expiry_items_by_date = {};
   bool _is_loading = true;
@@ -39,7 +35,7 @@ class _CalendarPageState extends State<CalendarPage> {
     'ธันวาคม',
   ];
 
-  String _api_base_url = ''; // <--- (3) เพิ่มตัวแปรนี้สำหรับเก็บ base URL
+  String _api_base_url = ''; 
 
   @override
   void initState() {
@@ -47,8 +43,8 @@ class _CalendarPageState extends State<CalendarPage> {
     // <--- (4) ดึงค่าจาก .env เมื่อ initState
     _api_base_url =
         dotenv.env['API_BASE_URL'] ??
-        'http://localhost/project'; // กำหนดค่า default ถ้าหาไม่เจอ
-    _fetch_expiry_data(); // เรียกเมื่อเริ่มต้น
+        'http://localhost/project'; 
+    _fetch_expiry_data(); 
   }
 
   Future<void> _fetch_expiry_data() async {
@@ -71,14 +67,16 @@ class _CalendarPageState extends State<CalendarPage> {
       return;
     }
 
-    // <--- (5) ใช้ _api_base_url ที่ดึงมาจาก .env เพื่อสร้าง apiUrl
-    final String apiUrl = '$_api_base_url/my_items.php?user_id=$userId';
+    final String apiUrl = '$_api_base_url/calendar_items.php?user_id=$userId';
+    
+    debugPrint('Calendar fetching from: $apiUrl');
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
       if (response.statusCode == 200) {
         final response_data = json.decode(utf8.decode(response.bodyBytes));
+        debugPrint('Calendar API response: $response_data');
         if (response_data['success'] == true) {
           final List<dynamic> items = response_data['data'];
           Map<String, List<Map<String, dynamic>>> new_expiry_items_by_date = {};
@@ -508,18 +506,63 @@ class _CalendarPageState extends State<CalendarPage> {
                     return GestureDetector(
                       onTap: () async {
                         Navigator.pop(context);
+                        
+                        // Debug: ดูข้อมูลที่ได้จาก API
+                        debugPrint('Calendar item_data: $item_data');
+                        debugPrint('Calendar item_expire_details: ${item_data['item_expire_details']}');
+                        debugPrint('Calendar storage_locations: ${item_data['storage_locations']}');
+                        
+                        // เตรียมข้อมูลให้ครบถ้วนสำหรับ ItemDetailPage
+                        Map<String, dynamic> itemDetailData = {
+                          // ข้อมูลพื้นฐาน
+                          'item_id': item_data['item_id'],
+                          'id': item_data['item_id'], // เพิ่ม id สำรอง
+                          'name': item_data['item_name'] ?? item_data['name'] ?? '',
+                          'item_name': item_data['item_name'] ?? item_data['name'] ?? '',
+                          'quantity': item_data['item_number'] ?? item_data['quantity'] ?? item_data['remaining_quantity'] ?? 1,
+                          'item_number': item_data['item_number'] ?? item_data['quantity'] ?? 1,
+                          'remaining_quantity': item_data['remaining_quantity'] ?? item_data['item_number'] ?? item_data['quantity'] ?? 1,
+                          
+                          // ข้อมูลหมวดหมู่และที่เก็บ
+                          'category': item_data['category'] ?? item_data['type_name'] ?? 'ไม่ระบุ',
+                          'type_name': item_data['type_name'] ?? item_data['category'] ?? 'ไม่ระบุ',
+                          'storage_location': item_data['storage_location'] ?? item_data['area_name'] ?? 'ไม่ระบุ',
+                          'area_name': item_data['area_name'] ?? item_data['storage_location'] ?? 'ไม่ระบุ',
+                          
+                          // ข้อมูลวันที่
+                          'item_date': item_data['item_date'],
+                          'date_type': item_data['date_type'] ?? 'EXP',
+                          'unit': item_data['date_type'] ?? 'EXP',
+                          
+                          // ข้อมูลการแจ้งเตือน
+                          'item_notification': item_data['item_notification'] ?? item_data['notification_days'] ?? 3,
+                          'notification_days': item_data['notification_days'] ?? item_data['item_notification'] ?? 3,
+                          
+                          // ข้อมูลบาร์โค้ด
+                          'barcode': item_data['item_barcode'] ?? item_data['barcode'] ?? '',
+                          'item_barcode': item_data['item_barcode'] ?? item_data['barcode'] ?? '',
+                          
+                          // ข้อมูลผู้ใช้และสถานะ
+                          'user_id': item_data['user_id'],
+                          'item_status': item_data['item_status'] ?? 'active',
+                          
+                          // ข้อมูลรูปภาพ
+                          'item_img': item_data['item_img_full_url'] ?? item_data['item_img'] ?? null,
+                          
+                          // ข้อมูลเพิ่มเติม
+                          'storage_locations': item_data['storage_locations'] ?? [],
+                          'item_expire_details': item_data['item_expire_details'] ?? [],
+                          'used_quantity': item_data['used_quantity'] ?? 0,
+                          'expired_quantity': item_data['expired_quantity'] ?? 0,
+                        };
+                        
+                        debugPrint('Calendar sending to ItemDetailPage: $itemDetailData');
+                        
                         final result = await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => ItemDetailPage(
-                              item_data: {
-                                ...item_data,
-                                'item_img': item_data['item_img_full_url'],
-                                'category': item_data['category'],
-                                'storage_location': item_data['storage_location'],
-                                'name': item_data['item_name'],
-                                'barcode': item_data['item_barcode'],
-                              },
+                              item_data: itemDetailData,
                             ),
                           ),
                         );
@@ -599,13 +642,27 @@ class _CalendarPageState extends State<CalendarPage> {
                                       color: Colors.grey[700],
                                     ),
                                   ),
-                                  Text(
-                                    'จัดเก็บ: ${item_data['storage_location'] ?? 'N/A'}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[700],
+                                  // แสดงพื้นที่จัดเก็บทั้งหมด (ถ้ามีหลายพื้นที่)
+                                  if ((item_data['storage_locations'] != null && (item_data['storage_locations'] as List).isNotEmpty))
+                                    Text(
+                                      'จัดเก็บ: ${(item_data['storage_locations'] as List)
+                                          .map((loc) => (loc is Map) ? (loc['area_name'] ?? '') : '')
+                                          .where((name) => name.toString().isNotEmpty)
+                                          .toSet() // ใช้ Set เพื่อลบชื่อซ้ำ
+                                          .join(', ')}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[700],
+                                      ),
+                                    )
+                                  else
+                                    Text(
+                                      'จัดเก็บ: ${item_data['storage_location'] ?? item_data['area_name'] ?? 'N/A'}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[700],
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                             ),
