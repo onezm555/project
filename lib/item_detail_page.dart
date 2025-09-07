@@ -25,25 +25,45 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   final TextEditingController _notification_days_controller = TextEditingController();
 
   // Variables to display data
-  DateTime _selected_date = DateTime.now();
-  String _selected_unit = '';
   String _selected_category = '';
-  String _selected_storage = '';
 
   // ฟังก์ชันโหลดข้อมูล item ล่าสุดจาก API
   Future<void> _reload_item_data() async {
+    debugPrint('DEBUG: _reload_item_data() called');
     int? itemId = widget.item_data['item_id'] ?? widget.item_data['id'];
     if (itemId == null) return;
+    
+    // ดึง user_id จาก SharedPreferences หรือ widget.item_data
+    int? userId = widget.item_data['user_id'];
+    if (userId == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        userId = prefs.getInt('user_id');
+      } catch (e) {
+        debugPrint('Error loading user_id from SharedPreferences: $e');
+      }
+    }
+    
+    if (userId == null) return;
+    
+    debugPrint('DEBUG: Calling API with itemId=$itemId, userId=$userId');
+    
     try {
+      print('Calling API: ${_apiBaseUrl}get_item.php?item_id=$itemId&user_id=$userId'); // Debug เพิ่ม
       final response = await http.get(
-        Uri.parse('$_apiBaseUrl/get_item.php?item_id=$itemId'),
+        Uri.parse('${_apiBaseUrl}get_item.php?item_id=$itemId&user_id=$userId'),
       );
+      debugPrint('DEBUG: API response status: ${response.statusCode}');
+      debugPrint('DEBUG: API response body: ${response.body}');
+      
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
-        if (data['status'] == 'success' && data['item'] != null) {
+        if (data['success'] == true && data['data'] != null) {
+          debugPrint('DEBUG: Updating widget.item_data with new data');
+          debugPrint('DEBUG: New item_expire_details: ${data['data']['item_expire_details']}');
           setState(() {
             widget.item_data.clear();
-            widget.item_data.addAll(data['item']);
+            widget.item_data.addAll(data['data']);
             _populate_fields();
           });
         }
@@ -57,40 +77,28 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   @override
   void initState() {
     super.initState();
-    // ดึงค่าจาก .env
-    _apiBaseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
+    // ดึงค่าจาก .env และเพิ่ม / ท้ายถ้าไม่มี
+    String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project';
+    _apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+    print('ItemDetailPage API Base URL: $_apiBaseUrl'); // Debug เพิ่ม
     _populate_fields();
+    // ดึงข้อมูลล่าสุดจาก API
+    _reload_item_data();
   }
 
   void _populate_fields() {
     final item = widget.item_data;
 
-    _name_controller.text = item['name'] ?? '';
-    _quantity_controller.text = item['quantity']?.toString() ?? '1';
-    _barcode_controller.text = item['barcode'] ?? '';
+    _name_controller.text = item['item_name'] ?? item['name'] ?? '';
+    // ใช้ active_quantity หรือ quantity จาก item_details
+    final quantity = item['active_quantity'] ?? item['quantity'] ?? item['remaining_quantity'] ?? 1;
+    _quantity_controller.text = quantity.toString();
+    _barcode_controller.text = item['item_barcode'] ?? item['barcode'] ?? '';
     _notification_days_controller.text = (item['item_notification'] != null && item['item_notification'].toString().trim().isNotEmpty)
         ? item['item_notification'].toString()
         : '-';
 
-    final rawUnit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
-    if (rawUnit == 'EXP') {
-      _selected_unit = 'วันหมดอายุ(EXP)';
-    } else if (rawUnit == 'BBF') {
-      _selected_unit = 'ควรบริโภคก่อน(BBF)';
-    } else {
-      _selected_unit = rawUnit;
-    }
-    _selected_category = item['category'] ?? 'เลือกประเภท';
-    _selected_storage = item['storage_location'] ?? 'เลือกพื้นที่จัดเก็บ';
-
-    if (item['item_date'] != null) {
-      try {
-        _selected_date = DateTime.parse(item['item_date']);
-      } catch (e) {
-        debugPrint('Error parsing date: ${item['item_date']} - $e');
-        _selected_date = DateTime.now().add(const Duration(days: 7));
-      }
-    }
+    _selected_category = item['category'] ?? item['type_name'] ?? 'เลือกประเภท';
   }
 
   Future<void> _delete_item() async {
@@ -120,7 +128,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
       return; // If user cancels, do nothing
     }
 
-    final String url = '$_apiBaseUrl/delete_item.php'; // ใช้ _apiBaseUrl ที่ได้จาก .env
+    final String url = '${_apiBaseUrl}delete_item.php'; // ใช้ _apiBaseUrl ที่ได้จาก .env
     // รองรับทั้ง item_id และ id
     int? itemId = widget.item_data['item_id'];
     if (itemId == null && widget.item_data['id'] != null) {
@@ -184,11 +192,40 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     // ตรวจสอบว่ามีรายละเอียดแต่ละชิ้นหรือไม่
     final item_expire_details = widget.item_data['item_expire_details'] as List?;
     
-    if (item_expire_details != null && item_expire_details.isNotEmpty) {
-      // แสดงรายการแต่ละชิ้นให้เลือก
+    // Debug: ดูข้อมูล item_expire_details
+    debugPrint('DEBUG: item_expire_details = $item_expire_details');
+    debugPrint('DEBUG: item_expire_details length = ${item_expire_details?.length}');
+    
+    // ตรวจสอบว่ามีข้อมูลจริงๆ และไม่ใช่ empty array และมี detail_id
+    bool hasValidDetailsWithId = item_expire_details != null && 
+                                item_expire_details.isNotEmpty &&
+                                item_expire_details.any((detail) => detail != null && 
+                                                                     (detail is Map) && 
+                                                                     detail.isNotEmpty &&
+                                                                     (detail['id'] != null || detail['detail_id'] != null));
+    
+    // ตรวจสอบว่ามีข้อมูลแต่ไม่มี detail_id
+    bool hasValidDetailsWithoutId = item_expire_details != null && 
+                                   item_expire_details.isNotEmpty &&
+                                   item_expire_details.any((detail) => detail != null && 
+                                                                        (detail is Map) && 
+                                                                        detail.isNotEmpty) &&
+                                   !hasValidDetailsWithId;
+    
+    debugPrint('DEBUG: hasValidDetailsWithId = $hasValidDetailsWithId');
+    debugPrint('DEBUG: hasValidDetailsWithoutId = $hasValidDetailsWithoutId');
+    
+    if (hasValidDetailsWithId) {
+      // แสดงรายการแต่ละชิ้นให้เลือก (เมื่อมี detail_id)
+      debugPrint('DEBUG: เรียก _show_item_selection_dialog');
       _show_item_selection_dialog();
+    } else if (hasValidDetailsWithoutId) {
+      // แสดง dialog พิเศษที่แสดงรายการแต่ละชิ้นแต่เลือกจำนวนรวม
+      debugPrint('DEBUG: เรียก _show_enhanced_traditional_dialog');
+      _show_enhanced_traditional_dialog();
     } else {
       // แสดง dialog แบบเดิมสำหรับเลือกจำนวน
+      debugPrint('DEBUG: เรียก _show_traditional_discard_dialog');
       _show_traditional_discard_dialog();
     }
   }
@@ -218,7 +255,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     const Text(
                       'เลือกชิ้นที่ต้องการจัดการ',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: 24, // เพิ่มจาก 18 เป็น 24
                         fontWeight: FontWeight.w600,
                         color: Colors.black,
                       ),
@@ -242,6 +279,9 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     itemBuilder: (context, index) {
                       final detail = item_expire_details[index];
                       final item_number = index + 1;
+                      
+                      // ตรวจสอบสถานะของแต่ละชิ้น
+                      final String itemStatus = detail['status'] ?? 'active';
                       
                       // คำนวณวันหมดอายุ
                       DateTime? expire_date;
@@ -312,7 +352,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                                   child: Text(
                                     'ชิ้นที่ $item_number',
                                     style: const TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 16, // เพิ่มจาก 12 เป็น 16
                                       fontWeight: FontWeight.w600,
                                       color: Colors.blue,
                                     ),
@@ -329,7 +369,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                                   child: Text(
                                     expire_text,
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 16, // เพิ่มจาก 12 เป็น 16
                                       fontWeight: FontWeight.w500,
                                       color: expire_color,
                                     ),
@@ -349,56 +389,91 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                                     children: [
                                       if (detail['area_name'] != null)
                                         Text('พื้นที่: ${detail['area_name']}', 
-                                             style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                                             style: const TextStyle(fontSize: 16, color: Colors.black87)), // เพิ่มจาก 12 เป็น 16
                                       Text('จำนวน: ${detail['quantity'] ?? 1} ชิ้น', 
-                                           style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                                           style: const TextStyle(fontSize: 16, color: Colors.black87)), // เพิ่มจาก 12 เป็น 16
                                     ],
                                   ),
                                 ),
                                 if (expire_date != null)
                                   Text('${expire_date.day}/${expire_date.month}/${expire_date.year + 543}', 
-                                       style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                       style: const TextStyle(fontSize: 16, color: Colors.black54)), // เพิ่มจาก 12 เป็น 16
                               ],
                             ),
                             
                             const SizedBox(height: 12),
                             
-                            // ปุ่มดำเนินการ
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).pop();
-                                      _show_individual_item_confirmation_dialog(item_number, detail, 'used');
-                                    },
-                                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                                    label: const Text('ใช้หมด', style: TextStyle(fontSize: 12)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                            // ปุ่มดำเนินการ - แสดงเฉพาะเมื่อสถานะเป็น active
+                            if (itemStatus == 'active') ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                        _show_individual_item_confirmation_dialog(item_number, detail, 'used');
+                                      },
+                                      icon: const Icon(Icons.check_circle_outline, size: 20), // เพิ่มจาก 16 เป็น 20
+                                      label: const Text('ใช้หมด', style: TextStyle(fontSize: 16)), // เพิ่มจาก 12 เป็น 16
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 8),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).pop();
-                                      _show_individual_item_confirmation_dialog(item_number, detail, 'expired');
-                                    },
-                                    icon: const Icon(Icons.warning_outlined, size: 16),
-                                    label: const Text('ทิ้ง/หมดอายุ', style: TextStyle(fontSize: 12)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                        _show_individual_item_confirmation_dialog(item_number, detail, 'expired');
+                                      },
+                                      icon: const Icon(Icons.warning_outlined, size: 20), // เพิ่มจาก 16 เป็น 20
+                                      label: const Text('ทิ้ง/หมดอายุ', style: TextStyle(fontSize: 16)), // เพิ่มจาก 12 เป็น 16
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 8),
+                                      ),
                                     ),
                                   ),
+                                ],
+                              ),
+                            ] else ...[
+                              // แสดงข้อความสถานะเมื่อไม่ใช่ active
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: _getItemStatusColor(itemStatus).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _getItemStatusColor(itemStatus).withOpacity(0.3),
+                                    width: 1,
+                                  ),
                                 ),
-                              ],
-                            ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      _getItemStatusIcon(itemStatus),
+                                      size: 16,
+                                      color: _getItemStatusColor(itemStatus),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _getItemStatusText(itemStatus),
+                                      style: TextStyle(
+                                        fontSize: 16, // เพิ่มจาก 12 เป็น 16
+                                        fontWeight: FontWeight.w600,
+                                        color: _getItemStatusColor(itemStatus),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       );
@@ -414,7 +489,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   }
 
   Future<void> _show_traditional_discard_dialog() async {
-    // ตรวจสอบจำนวนสินค้าปัจจุบัน
+    // ตรวจสอบจำนวนสิ่งของปัจจุบัน
     int currentQuantity = int.tryParse(_quantity_controller.text) ?? 1;
     
     showDialog(
@@ -444,11 +519,11 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                 
                 const SizedBox(height: 8),
                 
-                // ข้อความ "สินค้าหมดหรือยัง"
+                // ข้อความ "สิ่งของหมดหรือยัง"
                 const Text(
-                  'สินค้าหมดหรือยัง',
+                  'สิ่งของหมดหรือยัง',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 24, // เพิ่มจาก 18 เป็น 24
                     fontWeight: FontWeight.w600,
                     color: Colors.black,
                   ),
@@ -525,6 +600,433 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     );
   }
 
+  Future<void> _show_enhanced_traditional_dialog() async {
+    // ตรวจสอบจำนวนสิ่งของปัจจุบัน
+    int currentQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+    final item_expire_details = widget.item_data['item_expire_details'] as List;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ปุ่มปิด X ด้านบน
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'จัดการสิ่งของ',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // แสดงรายการชิ้นต่างๆ (อ่านอย่างเดียว)
+                if (item_expire_details.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'รายการสิ่งของทั้งหมด:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: item_expire_details.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final detail = entry.value;
+                              final item_number = index + 1;
+                              
+                              // ตรวจสอบสถานะของแต่ละชิ้น
+                              final String itemStatus = detail['status'] ?? 'active';
+                              
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[50],
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue[100],
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            '#$item_number',
+                                            style: const TextStyle(
+                                              fontSize: 14, // เพิ่มจาก 10 เป็น 14
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.blue,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              if (detail['area_name'] != null)
+                                                Text(
+                                                  'พื้นที่: ${detail['area_name']}',
+                                                  style: const TextStyle(fontSize: 15, color: Colors.black87), // เพิ่มจาก 11 เป็น 15
+                                                ),
+                                              Text(
+                                                'จำนวน: ${detail['quantity'] ?? 1} ชิ้น',
+                                                style: const TextStyle(fontSize: 15, color: Colors.black87), // เพิ่มจาก 11 เป็น 15
+                                              ),
+                                              if (detail['expire_date'] != null)
+                                                Text(
+                                                  'หมดอายุ: ${_format_expire_date(detail['expire_date'])}',
+                                                  style: const TextStyle(fontSize: 15, color: Colors.grey), // เพิ่มจาก 11 เป็น 15
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    // ปุ่มดำเนินการสำหรับแต่ละชิ้น - แสดงเฉพาะเมื่อ active
+                                    if (itemStatus == 'active') ...[
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: ElevatedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                _handle_individual_item_without_detail_id(detail, item_number, 'used');
+                                              },
+                                              icon: const Icon(Icons.check_circle_outline, size: 18), // เพิ่มจาก 14 เป็น 18
+                                              label: const Text('ใช้หมด', style: TextStyle(fontSize: 15)), // เพิ่มจาก 11 เป็น 15
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.green,
+                                                foregroundColor: Colors.white,
+                                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                                minimumSize: const Size(0, 32),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: ElevatedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                _handle_individual_item_without_detail_id(detail, item_number, 'expired');
+                                              },
+                                              icon: const Icon(Icons.warning_outlined, size: 18), // เพิ่มจาก 14 เป็น 18
+                                              label: const Text('ทิ้ง', style: TextStyle(fontSize: 15)), // เพิ่มจาก 11 เป็น 15
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.red,
+                                                foregroundColor: Colors.white,
+                                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                                minimumSize: const Size(0, 32),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ] else ...[
+                                      // แสดงสถานะเมื่อไม่ใช่ active
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                        decoration: BoxDecoration(
+                                          color: _getItemStatusColor(itemStatus).withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(
+                                            color: _getItemStatusColor(itemStatus).withOpacity(0.3),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              _getItemStatusIcon(itemStatus),
+                                              size: 14,
+                                              color: _getItemStatusColor(itemStatus),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              _getItemStatusText(itemStatus),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: _getItemStatusColor(itemStatus),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                
+                // ข้อความ "สิ่งของหมดหรือยัง"
+                const Text(
+                  'สิ่งของหมดหรือยัง',
+                  style: TextStyle(
+                    fontSize: 24, // เพิ่มจาก 18 เป็น 24
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // ปุ่ม "ใช้ของหมด" (สีฟ้า)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      if (currentQuantity > 1) {
+                        _show_quantity_selection_dialog('used');
+                      } else {
+                        _handle_used_up_item();
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    child: Text(
+                      currentQuantity > 1 ? 'ใช้ของหมด (เลือกจำนวน)' : 'ใช้ของหมด',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // ปุ่ม "ทิ้ง/หมดอายุ" (สีแดง)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      if (currentQuantity > 1) {
+                        _show_quantity_selection_dialog('expired');
+                      } else {
+                        _handle_discard_expired_item();
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    child: Text(
+                      currentQuantity > 1 ? 'ทิ้ง/หมดอายุ (เลือกจำนวน)' : 'ทิ้ง/หมดอายุ',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ฟังก์ชันสำหรับจัดการแต่ละชิ้นโดยไม่ต้องใช้ detail_id
+  Future<void> _handle_individual_item_without_detail_id(Map<String, dynamic> detail, int itemNumber, String action) async {
+    // แสดง confirmation dialog
+    String actionText = action == 'used' ? 'ใช้แล้ว' : 'ทิ้ง/หมดอายุ';
+    String confirmText = action == 'used' ? 'ยืนยันการใช้สิ่งของ' : 'ยืนยันการทิ้ง/หมดอายุ';
+    
+    bool confirmed = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(confirmText),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('คุณต้องการทำเครื่องหมายชิ้นที่ $itemNumber ว่า$actionText หรือไม่?'),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('รายละเอียด:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), // เพิ่มจาก 12 เป็น 18
+                    const SizedBox(height: 4),
+                    if (detail['area_name'] != null)
+                      Text('พื้นที่: ${detail['area_name']}', style: const TextStyle(fontSize: 16)), // เพิ่มจาก 12 เป็น 16
+                    if (detail['expire_date'] != null)
+                      Text('วันหมดอายุ: ${_format_expire_date(detail['expire_date'])}', style: const TextStyle(fontSize: 16)), // เพิ่มจาก 12 เป็น 16
+                    Text('จำนวน: ${detail['quantity'] ?? 1} ชิ้น', style: const TextStyle(fontSize: 16)), // เพิ่มจาก 12 เป็น 16
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: action == 'used' ? Colors.green : Colors.red,
+              ),
+              child: Text('ยืนยัน', style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+
+    if (!confirmed) return;
+
+    // ใช้ API แบบเดิมที่ไม่ต้องใช้ detail_id แต่ส่งข้อมูลเพิ่มเติม
+    await _update_item_quantity_by_location(action, detail, itemNumber);
+  }
+
+  // ฟังก์ชันอัปเดตสิ่งของตามพื้นที่และวันหมดอายุ (ไม่ใช้ detail_id)
+  Future<void> _update_item_quantity_by_location(String type, Map<String, dynamic> detail, int itemNumber) async {
+    // ใช้ API update_item_detail_by_criteria.php ที่ปลอดภัยกว่า
+    final String url = '${_apiBaseUrl}update_item_detail_by_criteria.php';
+    
+    // รองรับทั้ง item_id และ id
+    int? itemId = widget.item_data['item_id'];
+    if (itemId == null && widget.item_data['id'] != null) {
+      itemId = widget.item_data['id'] is int
+          ? widget.item_data['id']
+          : int.tryParse(widget.item_data['id'].toString());
+    }
+
+    int? userId = widget.item_data['user_id'];
+    if (userId == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        userId = prefs.getInt('user_id');
+      } catch (e) {
+        debugPrint('Error loading user_id from SharedPreferences: $e');
+      }
+    }
+
+    if (itemId == null || userId == null) {
+      _show_snackbar('Error: ไม่พบข้อมูล Item ID หรือ User ID', Colors.red);
+      return;
+    }
+
+    try {
+      final requestData = {
+        'item_id': itemId,
+        'user_id': userId,
+        'area_id': detail['area_id'],
+        'expire_date': detail['expire_date'],
+        'new_status': type == 'used' ? 'disposed' : 'expired',
+        'quantity_to_update': detail['quantity'] ?? 1,
+      };
+
+      debugPrint('Sending request to update_item_detail_by_criteria.php: $requestData');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestData),
+      );
+
+      debugPrint('Response status: ${response.statusCode}');
+      debugPrint('Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['status'] == 'success') {
+          String message = type == 'used' 
+              ? 'ทำเครื่องหมายใช้แล้วสำเร็จ (ชิ้นที่ $itemNumber)' 
+              : 'ทำเครื่องหมายทิ้ง/หมดอายุสำเร็จ (ชิ้นที่ $itemNumber)';
+          
+          // ดึงข้อมูลล่าสุดจาก API เพื่อ refresh UI
+          await _reload_item_data();
+          
+          _show_snackbar(message, Colors.green);
+          
+          // กลับไปหน้าก่อนหน้าพร้อมส่งสัญญาณว่ามีการเปลี่ยนแปลง
+          Navigator.pop(context, true);
+        } else {
+          _show_snackbar(responseData['message'] ?? 'ไม่สามารถอัพเดตได้', Colors.red);
+        }
+      } else if (response.statusCode == 404) {
+        // ถ้า API ใหม่ไม่มี ให้แสดงข้อความเตือนแทนการ fallback
+        _show_snackbar('ไม่สามารถอัพเดตแต่ละชิ้นได้ในขณะนี้ กรุณาใช้ฟีเจอร์อัพเดตทั้งหมดแทน', Colors.orange);
+      } else {
+        _show_snackbar('เกิดข้อผิดพลาดในการเชื่อมต่อ (${response.statusCode})', Colors.red);
+      }
+    } catch (e) {
+      debugPrint('Error updating individual item: $e');
+      _show_snackbar('เกิดข้อผิดพลาด: ${e.toString()}', Colors.red);
+    }
+  }
+
   Future<void> _show_quantity_selection_dialog(String action) async {
     int currentQuantity = int.tryParse(_quantity_controller.text) ?? 1;
     int selectedQuantity = 1;
@@ -562,7 +1064,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     Text(
                       action == 'used' ? 'เลือกจำนวนที่ใช้หมด' : 'เลือกจำนวนที่ทิ้ง/หมดอายุ',
                       style: const TextStyle(
-                        fontSize: 18,
+                        fontSize: 24, // เพิ่มจาก 18 เป็น 24
                         fontWeight: FontWeight.w600,
                         color: Colors.black,
                       ),
@@ -574,7 +1076,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     Text(
                       'จำนวนปัจจุบัน: $currentQuantity ชิ้น',
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 20, // เพิ่มจาก 16 เป็น 20
                         color: Colors.grey,
                       ),
                     ),
@@ -613,7 +1115,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                             selectedQuantity.toString(),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                              fontSize: 18,
+                              fontSize: 24, // เพิ่มจาก 18 เป็น 24
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -688,7 +1190,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   }
 
   Future<void> _update_item_quantity(String type, int quantity, String successMessage) async {
-    final String url = '$_apiBaseUrl/update_item_status_v2.php'; // ใช้ API ใหม่
+    final String url = '${_apiBaseUrl}update_item_status.php'; // ใช้ API ที่มีอยู่จริง
     
     // รองรับทั้ง item_id และ id
     int? itemId = widget.item_data['item_id'];
@@ -717,12 +1219,13 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     try {
       final response = await http.post(
         Uri.parse(url),
-        body: {
-          'item_id': itemId.toString(),
-          'user_id': userId.toString(),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'item_id': itemId,
+          'user_id': userId,
           'quantity_type': type, // 'used' หรือ 'expired'
-          'quantity': quantity.toString(),
-        },
+          'quantity': quantity,
+        }),
       );
 
       final Map<String, dynamic> responseData = json.decode(response.body);
@@ -772,68 +1275,38 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   }
 
   Future<void> _handle_used_up_item() async {
-    // จัดการเมื่อเลือก "ใช้ของหมด" - ส่งสถานะ 'disposed'
-    await _update_item_status('disposed', 'ใช้ของหมดเรียบร้อย');
+    // จัดการเมื่อเลือก "ใช้ของหมด" - อัปเดตที่ item_details แทน items
+    final item_expire_details = widget.item_data['item_expire_details'] as List?;
+    if (item_expire_details != null && item_expire_details.isNotEmpty) {
+      // ใช้ข้อมูลจากชิ้นแรกเพื่ออัปเดต
+      final firstDetail = item_expire_details[0];
+      await _update_item_quantity_by_location('used', firstDetail, 1);
+    } else {
+      // fallback ถ้าไม่มีข้อมูล item_expire_details - สร้างข้อมูล detail จาก item หลัก
+      final detail = {
+        'area_id': widget.item_data['area_id'],
+        'expire_date': widget.item_data['item_date'],
+        'storage_location': widget.item_data['storage_location'],
+      };
+      await _handle_individual_item_without_detail_id(detail, 1, 'disposed');
+    }
   }
 
   Future<void> _handle_discard_expired_item() async {
-    // จัดการเมื่อเลือก "ทิ้ง/หมดอายุ" - ส่งสถานะ 'expired'
-    await _update_item_status('expired', 'ทิ้ง/หมดอายุเรียบร้อย');
-  }
-
-  Future<void> _update_item_status(String newStatus, String successMessage) async {
-    final String url = '$_apiBaseUrl/update_item_status.php';
-    
-    // รองรับทั้ง item_id และ id
-    int? itemId = widget.item_data['item_id'];
-    if (itemId == null && widget.item_data['id'] != null) {
-      itemId = widget.item_data['id'] is int
-          ? widget.item_data['id']
-          : int.tryParse(widget.item_data['id'].toString());
-    }
-
-    int? userId = widget.item_data['user_id'];
-    if (userId == null) {
-      // ถ้าไม่มี user_id ใน item_data ให้ดึงจาก SharedPreferences
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        userId = prefs.getInt('user_id');
-      } catch (e) {
-        debugPrint('Error loading user_id from SharedPreferences: $e');
-      }
-    }
-
-    if (itemId == null || userId == null) {
-      _show_snackbar('Error: ไม่พบข้อมูล Item ID หรือ User ID', Colors.red);
-      return;
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse(url),
-        body: {
-          'item_id': itemId.toString(),
-          'user_id': userId.toString(),
-          'new_status': newStatus,
-        },
-      );
-
-      final Map<String, dynamic> responseData = json.decode(response.body);
-
-      if (response.statusCode == 200 && responseData['status'] == 'success') {
-        _show_snackbar(successMessage, Colors.green);
-        setState(() {
-          widget.item_data['item_status'] = newStatus;
-        });
-        await _reload_item_data();
-        // กลับไปหน้าก่อนหน้าพร้อมส่งสัญญาณว่ามีการเปลี่ยนแปลง
-        Navigator.pop(context, true);
-      } else {
-        _show_snackbar(responseData['message'] ?? 'ไม่สามารถอัพเดตสถานะได้', Colors.red);
-      }
-    } catch (e) {
-      debugPrint('Error updating item status: $e');
-      _show_snackbar('เกิดข้อผิดพลาด: ${e.toString()}', Colors.red);
+    // จัดการเมื่อเลือก "ทิ้ง/หมดอายุ" - อัปเดตที่ item_details แทน items
+    final item_expire_details = widget.item_data['item_expire_details'] as List?;
+    if (item_expire_details != null && item_expire_details.isNotEmpty) {
+      // ใช้ข้อมูลจากชิ้นแรกเพื่ออัปเดต
+      final firstDetail = item_expire_details[0];
+      await _update_item_quantity_by_location('expired', firstDetail, 1);
+    } else {
+      // fallback ถ้าไม่มีข้อมูล item_expire_details - สร้างข้อมูล detail จาก item หลัก
+      final detail = {
+        'area_id': widget.item_data['area_id'],
+        'expire_date': widget.item_data['item_date'],
+        'storage_location': widget.item_data['storage_location'],
+      };
+      await _handle_individual_item_without_detail_id(detail, 1, 'expired');
     }
   }
 
@@ -846,8 +1319,35 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     super.dispose();
   }
 
+  // ฟังก์ชันสำหรับสร้าง URL รูปภาพเต็ม
+  String _getFullImageUrl() {
+    // ลองใช้ item_img_full_url ก่อน
+    if (widget.item_data['item_img_full_url'] != null && 
+        (widget.item_data['item_img_full_url'] as String).isNotEmpty) {
+      String fullUrl = widget.item_data['item_img_full_url'];
+      // ถ้าเป็น URL เต็มแล้ว ให้ใช้เลย
+      if (fullUrl.startsWith('http')) {
+        return fullUrl;
+      }
+      // ถ้าไม่ใช่ ให้เติม base URL (รูปอยู่ที่ img folder)
+      return '${_apiBaseUrl}img/$fullUrl';
+    }
+    
+    // fallback ใช้ item_img
+    if (widget.item_data['item_img'] != null && 
+        (widget.item_data['item_img'] as String).isNotEmpty) {
+      return '${_apiBaseUrl}img/${widget.item_data['item_img']}';
+    }
+    
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Debug: แสดงสถานะปัจจุบัน
+    debugPrint('DEBUG: Current item_status = ${widget.item_data['item_status']}');
+    debugPrint('DEBUG: Will show status change button = ${widget.item_data['item_status'] == 'active'}');
+    
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -858,9 +1358,9 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'รายละเอียดสินค้า',
+          'รายละเอียดสิ่งของ',
           style: TextStyle(
-            fontSize: 18,
+            fontSize: 24, // เพิ่มจาก 18 เป็น 24
             fontWeight: FontWeight.w600,
             color: Colors.black,
           ),
@@ -892,25 +1392,30 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ชื่อสินค้า
-              _build_section_title('สินค้า'),
+              // ชื่อสิ่งของ
+              _build_section_title('สิ่งของ'),
               const SizedBox(height: 12),
               _build_text_display(
                 controller: _name_controller,
-                hint: 'ระบุชื่อสินค้า',
+                hint: 'ระบุชื่อสิ่งของ',
               ),
 
               const SizedBox(height: 12),
 
-              // จำนวนสินค้าและรูปภาพ
+              // แสดงสถานะสิ่งของ
+              _build_status_section(),
+
+              const SizedBox(height: 12),
+
+              // จำนวนสิ่งของและรูปภาพ
               Row(
                 children: [
-                  // จำนวนสินค้า
+                  // จำนวนสิ่งของ
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _build_section_title('จำนวนสินค้า'),
+                        _build_section_title('จำนวนสิ่งของ'),
                         const SizedBox(height: 8),
                         _build_text_display(
                           controller: _quantity_controller,
@@ -938,9 +1443,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                           (widget.item_data['item_img'] as String).isNotEmpty &&
                           (widget.item_data['item_img'] as String) != 'lib/img/default.png'
                           ? Image.network(
-                              widget.item_data['item_img'],
+                              _getFullImageUrl(),
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) {
+                                debugPrint('Error loading image: $error');
                                 return Container(
                                   color: Colors.grey[200],
                                   child: const Icon(
@@ -963,50 +1469,6 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
 
               const SizedBox(height: 24),
 
-              // วัน
-              _build_section_title('วัน'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  // Dropdown หน่วยวัน (แสดงผลอย่างเดียว)
-                  Expanded(
-                    flex: 2,
-                    child: _build_text_display(
-                      controller: TextEditingController(text: _selected_unit),
-                      hint: 'หน่วยวัน',
-                    ),
-                  ),
-
-                  const SizedBox(width: 12),
-
-                  // ปุ่มเลือกวันที่ (แสดงผลอย่างเดียว)
-                  Expanded(
-                    child: Container(
-                      height: 48,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _format_date(_selected_date),
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
               // หมวดหมู่
               _build_section_title('หมวดหมู่'),
               const SizedBox(height: 12),
@@ -1014,42 +1476,6 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                 controller: TextEditingController(text: _selected_category),
                 hint: 'หมวดหมู่',
               ),
-
-              const SizedBox(height: 16),
-
-              // พื้นที่จัดเก็บ
-
-              // แสดงพื้นที่จัดเก็บทั้งหมด (ถ้ามีหลายพื้นที่)
-              if ((widget.item_data['storage_locations'] ?? []).isNotEmpty)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _build_section_title('พื้นที่จัดเก็บทั้งหมด'),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      child: Text(
-                        (widget.item_data['storage_locations'] as List)
-                          .map((loc) => loc['area_name'] ?? '')
-                          .where((name) => name.toString().isNotEmpty)
-                          .toList()
-                          .join(', '),
-                        style: const TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                _build_text_display(
-                  controller: TextEditingController(text: _selected_storage),
-                  hint: 'พื้นที่จัดเก็บ',
-                ),
 
               const SizedBox(height: 16),
 
@@ -1067,7 +1493,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                   const Expanded(
                     child: Text(
                       'แจ้งเตือนอีก',
-                      style: TextStyle(fontSize: 16),
+                      style: TextStyle(fontSize: 18), // เพิ่มจาก 16 เป็น 18
                     ),
                   ),
                   Container(
@@ -1085,7 +1511,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                   const SizedBox(width: 8),
                   const Text(
                     'วันก่อนหมดอายุ',
-                    style: TextStyle(fontSize: 16),
+                    style: TextStyle(fontSize: 18), // เพิ่มจาก 16 เป็น 18
                   ),
                 ],
               ),
@@ -1111,22 +1537,12 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () async {
-                          // เตรียม item_data ให้ date_type เป็นภาษาไทยก่อนส่งไป AddItemPage (รองรับทั้งรหัสและ label)
-                          final itemDataForEdit = Map<String, dynamic>.from(widget.item_data);
-                          final rawUnit = widget.item_data['unit'] ?? widget.item_data['date_type'] ?? 'วันหมดอายุ(EXP)';
-                          if (rawUnit == 'EXP' || rawUnit == 'วันหมดอายุ(EXP)') {
-                            itemDataForEdit['date_type'] = 'วันหมดอายุ(EXP)';
-                          } else if (rawUnit == 'BBF' || rawUnit == 'ควรบริโภคก่อน(BBF)') {
-                            itemDataForEdit['date_type'] = 'ควรบริโภคก่อน(BBF)';
-                          } else {
-                            itemDataForEdit['date_type'] = rawUnit;
-                          }
                           final result = await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => AddItemPage(
                                 is_existing_item: true,
-                                item_data: itemDataForEdit,
+                                item_data: widget.item_data,
                               ),
                             ),
                           );
@@ -1145,21 +1561,23 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                         child: const Text(
                           'แก้ไขข้อมูล',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 18, // เพิ่มจาก 16 เป็น 18
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16), // Space between buttons
+                    
+                    // ปุ่ม "ทิ้งสิ่งของ/สิ่งของหมด" สำหรับแสดงรายการและเปลี่ยนสถานะแต่ละไอเทม
+                    const SizedBox(width: 16),
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () {
                           _show_discard_options_dialog();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red, // Red button
+                          backgroundColor: Colors.red,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(25),
                           ),
@@ -1168,7 +1586,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                         child: const Text(
                           'ทิ้งสิ่งของ/สิ่งของหมด',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 18, // เพิ่มจาก 16 เป็น 18
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -1190,16 +1608,76 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     return Text(
       title,
       style: const TextStyle(
-        fontSize: 16,
+        fontSize: 20, // เพิ่มจาก 16 เป็น 20
         fontWeight: FontWeight.w600,
         color: Colors.black87,
       ),
     );
   }
 
+  // Widget สำหรับแสดงสถานะสิ่งของ
+  Widget _build_status_section() {
+    final String status = widget.item_data['item_status'] ?? 'active';
+    
+    Color statusColor;
+    String statusText;
+    IconData statusIcon;
+    
+    switch (status) {
+      case 'disposed':
+        statusColor = Colors.green;
+        statusText = 'ใช้หมดแล้ว';
+        statusIcon = Icons.check_circle;
+        break;
+      case 'expired':
+        statusColor = Colors.red;
+        statusText = 'ทิ้ง/หมดอายุ';
+        statusIcon = Icons.cancel;
+        break;
+      case 'active':
+      default:
+        statusColor = Colors.blue;
+        statusText = 'ใช้งานได้';
+        statusIcon = Icons.inventory;
+        break;
+    }
+    
+    return Row(
+      children: [
+        const Text(
+          'สถานะ: ',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Icon(
+          statusIcon,
+          size: 16,
+          color: statusColor,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          statusText,
+          style: TextStyle(
+            fontSize: 14,
+            color: statusColor,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
   // Widget สำหรับแสดงรายละเอียดแต่ละชิ้น
   Widget _build_individual_items_section() {
     final item_expire_details = widget.item_data['item_expire_details'] as List;
+    
+    // Debug: ตรวจสอบการแสดงผล
+    debugPrint('DEBUG: _build_individual_items_section() called');
+    debugPrint('DEBUG: item_expire_details.length = ${item_expire_details.length}');
+    debugPrint('DEBUG: item_expire_details data = $item_expire_details');
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1208,10 +1686,20 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         const SizedBox(height: 12),
         
         // แสดงรายการแต่ละชิ้น
-        ...item_expire_details.asMap().entries.map((entry) {
-          final index = entry.key;
-          final detail = entry.value;
-          final item_number = index + 1;
+        Column(
+          children: List.generate(item_expire_details.length, (index) {
+            final detail = item_expire_details[index];
+            final item_number = index + 1;
+            
+            // Debug: ตรวจสอบแต่ละรายการ
+            debugPrint('DEBUG: Building item $item_number with data: $detail');
+            
+            // ตรวจสอบสถานะของแต่ละชิ้น
+            final String itemStatus = detail['status'] ?? 'active';
+          
+          // Debug: แสดงข้อมูลของแต่ละชิ้น
+          debugPrint('DEBUG: Item $item_number - detail data: $detail');
+          debugPrint('DEBUG: Item $item_number - status: $itemStatus');
           
           // คำนวณวันหมดอายุ
           DateTime? expire_date;
@@ -1282,29 +1770,54 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                       child: Text(
                         'ชิ้นที่ $item_number',
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 16, // เพิ่มจาก 12 เป็น 16
                           fontWeight: FontWeight.w600,
                           color: Colors.blue,
                         ),
                       ),
                     ),
-                    const Spacer(),
-                    // สถานะวันหมดอายุ
+                    const SizedBox(width: 8),
+                    // แสดงสถานะของแต่ละชิ้น
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: expire_color.withOpacity(0.1),
+                        color: itemStatus == 'active' ? Colors.green[100] 
+                             : itemStatus == 'disposed' ? Colors.blue[100]
+                             : Colors.red[100],
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        expire_text,
+                        itemStatus == 'active' ? 'ใช้งานได้'
+                        : itemStatus == 'disposed' ? 'ใช้งานหมดแล้ว'
+                        : itemStatus == 'expired' ? 'ทิ้ง/หมดอายุ'
+                        : 'ไม่ทราบสถานะ',
                         style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: expire_color,
+                          fontSize: 15, // เพิ่มจาก 11 เป็น 15
+                          fontWeight: FontWeight.w600,
+                          color: itemStatus == 'active' ? Colors.green[700] 
+                               : itemStatus == 'disposed' ? Colors.blue[700]
+                               : Colors.red[700],
                         ),
                       ),
                     ),
+                    const Spacer(),
+                    // สถานะวันหมดอายุ - แสดงเฉพาะเมื่อสถานะเป็น active
+                    if (itemStatus == 'active')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: expire_color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          expire_text,
+                          style: TextStyle(
+                            fontSize: 16, // เพิ่มจาก 12 เป็น 16
+                            fontWeight: FontWeight.w500,
+                            color: expire_color,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 
@@ -1320,8 +1833,6 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                         children: [
                           if (detail['area_name'] != null)
                             _build_detail_row('พื้นที่:', detail['area_name']),
-                          if (detail['barcode'] != null && detail['barcode'].toString().isNotEmpty)
-                            _build_detail_row('บาร์โค้ด:', detail['barcode']),
                         ],
                       ),
                     ),
@@ -1344,7 +1855,8 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
               ],
             ),
           );
-        }).toList(),
+        }),
+        ),
       ],
     );
   }
@@ -1357,11 +1869,11 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
+            width: 90, // เพิ่มจาก 80 เป็น 90 เพื่อให้พอดีกับตัวอักษรที่ใหญ่ขึ้น
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 16, // เพิ่มจาก 12 เป็น 16
                 color: Colors.grey[600],
                 fontWeight: FontWeight.w500,
               ),
@@ -1371,7 +1883,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
             child: Text(
               value,
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 16, // เพิ่มจาก 12 เป็น 16
                 color: Colors.black87,
                 fontWeight: FontWeight.w500,
               ),
@@ -1385,7 +1897,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   // ฟังก์ชันแสดง confirmation dialog สำหรับชิ้นเฉพาะ
   void _show_individual_item_confirmation_dialog(int item_number, Map<String, dynamic> detail, String action) {
     String actionText = action == 'used' ? 'ใช้แล้ว' : 'หมดอายุ';
-    String confirmText = action == 'used' ? 'ยืนยันการใช้สินค้า' : 'ยืนยันการทิ้ง/หมดอายุ';
+    String confirmText = action == 'used' ? 'ยืนยันการใช้สิ่งของ' : 'ยืนยันการทิ้ง/หมดอายุ';
     
     showDialog(
       context: context,
@@ -1474,7 +1986,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
       print('DEBUG: No detail_id found, searching via API...');
       try {
         final findResponse = await http.post(
-          Uri.parse('$_apiBaseUrl/find_detail_id.php'),
+          Uri.parse('${_apiBaseUrl}find_detail_id.php'),
           headers: {'Content-Type': 'application/json'},
           body: json.encode({
             'item_id': itemId,
@@ -1529,7 +2041,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
       return;
     }
 
-    final String url = '$_apiBaseUrl/update_item_status.php'; // ใช้ API เดียวกัน
+    final String url = '${_apiBaseUrl}update_item_status.php'; // ใช้ API เดียวกัน
 
     try {
       final requestBody = {
@@ -1598,7 +2110,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
       textAlign: textAlign,
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: Colors.grey[400]),
+        hintStyle: TextStyle(
+          color: Colors.grey[400],
+          fontSize: 18, // เพิ่มขนาดตัวอักษร hint
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -1613,22 +2128,49 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         ),
         filled: true,
         fillColor: Colors.grey[100], // เปลี่ยนสีพื้นหลังเล็กน้อยเพื่อบ่งบอกว่าอ่านอย่างเดียว
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16), // เพิ่ม padding ให้ใหญ่ขึ้น
       ),
-      style: const TextStyle(color: Colors.black87),
+      style: const TextStyle(
+        color: Colors.black87,
+        fontSize: 18, // เพิ่มขนาดตัวอักษรในฟิลด์
+      ),
     );
   }
 
-  // ฟังก์ชันจัดรูปแบบวันที่ (คัดลอกมาจาก add_item.dart)
-  String _format_date(DateTime date) {
-    const List<String> thai_months = [
-      '', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-    ];
+  // ฟังก์ชันสำหรับจัดการสถานะแต่ละชิ้น
+  Color _getItemStatusColor(String status) {
+    switch (status) {
+      case 'disposed':
+        return Colors.green;
+      case 'expired':
+        return Colors.red;
+      case 'active':
+      default:
+        return Colors.blue;
+    }
+  }
 
-    // แปลงเป็นปี พ.ศ.
-    final int buddhist_year = date.year + 543;
+  String _getItemStatusText(String status) {
+    switch (status) {
+      case 'disposed':
+        return 'ใช้หมดแล้ว';
+      case 'expired':
+        return 'ทิ้ง/หมดอายุแล้ว';
+      case 'active':
+      default:
+        return 'ใช้งานได้';
+    }
+  }
 
-    return '${date.day} ${thai_months[date.month]} $buddhist_year';
+  IconData _getItemStatusIcon(String status) {
+    switch (status) {
+      case 'disposed':
+        return Icons.check_circle;
+      case 'expired':
+        return Icons.cancel;
+      case 'active':
+      default:
+        return Icons.inventory;
+    }
   }
 }

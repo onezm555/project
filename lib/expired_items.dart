@@ -21,9 +21,11 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
   String _api_base_url = '';
   String _selected_category = 'ทั้งหมด';
   String _selected_storage = 'ทั้งหมด';
+  String _selected_status = 'ทั้งหมด'; // เพิ่มการกรองตามสถานะ
   String _search_query = '';
   List<String> _available_categories = ['ทั้งหมด'];
   List<String> _available_storages = ['ทั้งหมด'];
+  List<String> _available_statuses = ['ทั้งหมด', 'หมดอายุแล้ว', 'ใช้หมดแล้ว']; // รายการสถานะ
   bool _show_filters = false;
   final TextEditingController _search_controller = TextEditingController();
 
@@ -142,6 +144,17 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
         storageMatch = itemStorage == _selected_storage;
       }
       
+      // กรองตามสถานะ (หมดอายุ/ใช้หมดแล้ว)
+      bool statusMatch = true;
+      if (_selected_status != 'ทั้งหมด') {
+        String itemStatus = item['item_status'] ?? '';
+        if (_selected_status == 'หมดอายุแล้ว') {
+          statusMatch = itemStatus == 'expired';
+        } else if (_selected_status == 'ใช้หมดแล้ว') {
+          statusMatch = itemStatus == 'disposed';
+        }
+      }
+      
       // กรองตามการค้นหา
       bool searchMatch = true;
       if (_search_query.isNotEmpty) {
@@ -151,7 +164,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
         searchMatch = itemName.contains(searchLower) || barcode.contains(searchLower);
       }
       
-      return categoryMatch && storageMatch && searchMatch;
+      return categoryMatch && storageMatch && statusMatch && searchMatch;
     }).toList();
   }
 
@@ -185,15 +198,50 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
 
         if (responseData['success'] == true) {
           List<dynamic> itemsData = responseData['data'] ?? [];
+          
+          // แยกแต่ละชิ้นจาก item_expire_details
+          List<Map<String, dynamic>> expandedItems = [];
+          
+          for (var item in itemsData) {
+            List<dynamic> expireDetails = item['item_expire_details'] ?? [];
+            
+            // กรองเฉพาะ item_details ที่มีสถานะ expired หรือ disposed
+            var filteredDetails = expireDetails.where((detail) {
+              String status = detail['status'] ?? '';
+              return status == 'expired' || status == 'disposed';
+            }).toList();
+            
+            // สร้าง item แยกสำหรับแต่ละ detail ที่ expired/disposed
+            for (var detail in filteredDetails) {
+              expandedItems.add({
+                // ข้อมูลหลักจาก item
+                'item_id': item['item_id'],
+                'user_id': item['user_id'],
+                'item_name': item['item_name'],
+                'item_barcode': item['item_barcode'],
+                'item_notification': item['item_notification'],
+                'date_type': item['date_type'],
+                'category': item['category'],
+                'type_name': item['type_name'],
+                'item_img_full_url': item['item_img_full_url'],
+                
+                // ข้อมูลเฉพาะของแต่ละชิ้น
+                'item_number': detail['quantity'], // จำนวนของชิ้นนี้
+                'item_date': detail['expire_date'], // วันหมดอายุของชิ้นนี้
+                'storage_location': detail['area_name'] ?? 'ไม่ระบุ', // พื้นที่จัดเก็บของชิ้นนี้
+                'item_status': detail['status'], // สถานะของชิ้นนี้ (expired/disposed)
+                'area_id': detail['area_id'],
+                'detail_barcode': detail['barcode'],
+                'detail_img': detail['item_img'],
+                
+                // เพิ่มข้อมูลสำหรับการระบุ
+                'detail_id': '${item['item_id']}_${detail['area_id']}_${detail['expire_date']}_${detail['status']}',
+              });
+            }
+          }
+          
           setState(() {
-            // กรองรายการที่ไม่ใช่ 'expired' หรือ 'disposed' ออกไป
-            _stored_items = itemsData
-                .where((item) {
-                  final status = item['item_status'] as String?;
-                  return status == 'expired' || status == 'disposed';
-                })
-                .map((item) => item as Map<String, dynamic>)
-                .toList();
+            _stored_items = expandedItems;
             _is_loading = false;
           });
           
@@ -260,7 +308,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text(
-          'รายการที่หมดอายุ/ใช้หมดแล้ว',
+          'ประวัติรายการที่หมดอายุ/ใช้หมดแล้ว',
           style: TextStyle(
             color: Colors.black87,
             fontSize: 18,
@@ -337,7 +385,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                             child: TextField(
                               controller: _search_controller,
                               decoration: InputDecoration(
-                                hintText: 'ค้นหาชื่อสินค้าหรือบาร์โค้ด...',
+                                hintText: 'ค้นหาชื่อสิ่งของหรือบาร์โค้ด...',
                                 prefixIcon: const Icon(Icons.search, color: Colors.grey),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
@@ -389,10 +437,10 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                         const Divider(),
                         const SizedBox(height: 16),
                         
-                        // ฟิลเตอร์หมวดหมู่สินค้า
+                        // ฟิลเตอร์หมวดหมู่สิ่งของ
                         Row(
                           children: [
-                            const SizedBox(width: 100, child: Text('สินค้า:', style: TextStyle(fontWeight: FontWeight.w600))),
+                            const SizedBox(width: 100, child: Text('สิ่งของ:', style: TextStyle(fontWeight: FontWeight.w600))),
                             Expanded(
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -414,6 +462,45 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                                       if (newValue != null) {
                                         setState(() {
                                           _selected_category = newValue;
+                                        });
+                                        await _update_categories_and_filter();
+                                        setState(() {});
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        // ฟิลเตอร์สถานะ (หมดอายุ/ใช้หมดแล้ว)
+                        Row(
+                          children: [
+                            const SizedBox(width: 100, child: Text('สถานะ:', style: TextStyle(fontWeight: FontWeight.w600))),
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _selected_status,
+                                    isExpanded: true,
+                                    items: _available_statuses.map((String status) {
+                                      return DropdownMenuItem<String>(
+                                        value: status,
+                                        child: Text(status),
+                                      );
+                                    }).toList(),
+                                    onChanged: (String? newValue) async {
+                                      if (newValue != null) {
+                                        setState(() {
+                                          _selected_status = newValue;
                                         });
                                         await _update_categories_and_filter();
                                         setState(() {});
@@ -475,6 +562,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                               setState(() {
                                 _selected_category = 'ทั้งหมด';
                                 _selected_storage = 'ทั้งหมด';
+                                _selected_status = 'ทั้งหมด';
                                 _search_query = '';
                                 _search_controller.clear();
                               });
@@ -506,7 +594,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                   ),
                 ),
                 
-                // รายการสินค้า
+                // รายการสิ่งของ
                 Expanded(
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -550,15 +638,17 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                 'item_id': item['item_id'],
                 'user_id': item['user_id'],
                 'name': item['item_name'],
-                'quantity': item['item_number'],
+                'quantity': item['item_number'], // จำนวนของชิ้นนี้
                 'barcode': item['item_barcode'],
                 'item_notification': item['item_notification'],
                 'unit': item['date_type'] ?? item['unit'],
                 'category': item['type_name'] ?? item['category'],
-                'storage_location':
-                    item['area_name'] ?? item['storage_location'],
-                'item_date': item['item_date'],
+                'storage_location': item['storage_location'], // พื้นที่จัดเก็บของชิ้นนี้
+                'item_date': item['item_date'], // วันหมดอายุของชิ้นนี้
                 'item_img': item['item_img_full_url'],
+                'item_status': item['item_status'], // สถานะของชิ้นนี้
+                'area_id': item['area_id'],
+                'detail_id': item['detail_id'], // รหัสเฉพาะของชิ้นนี้
               },
             ),
           ),
@@ -664,9 +754,19 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            // แสดงประเภทสินค้า
+                            // แสดงวันหมดอายุของชิ้นนี้
                             Text(
-                              'สินค้า: $category',
+                              'วันหมดอายุ: ${item['item_date'] ?? 'ไม่ระบุ'}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            // แสดงประเภทสิ่งของ
+                            Text(
+                              'สิ่งของ: $category',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.orange[600],
@@ -677,12 +777,33 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                             // แสดงสถานะที่ได้จาก _get_status_info
                             // จะแสดงเฉพาะเมื่อ status_text ไม่ว่างเปล่า
                             if (status_text.isNotEmpty)
-                              Text(
-                                status_text, // ใช้ status_text ที่ได้จาก _get_status_info
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: status_color, // ใช้ status_color ที่ได้จาก _get_status_info
-                                  fontWeight: FontWeight.w500,
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: status_color == Colors.red ? Colors.red[50] : Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: status_color == Colors.red ? Colors.red[200]! : Colors.grey[300]!,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      status_color == Colors.red ? Icons.schedule : Icons.check_circle,
+                                      size: 14,
+                                      color: status_color,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      status_text, // ใช้ status_text ที่ได้จาก _get_status_info
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: status_color, // ใช้ status_color ที่ได้จาก _get_status_info
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                           ],

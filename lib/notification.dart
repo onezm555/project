@@ -23,17 +23,6 @@ class _NotificationPageState extends State<NotificationPage> {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
   Set<String> _sentNotifications = {}; // เก็บรายการการแจ้งเตือนที่ส่งไปแล้ว
   Timer? _periodicTimer; // เพิ่มตัวแปรสำหรับการตรวจสอบอัตโนมัติ
-  // ฟังก์ชันรีเซ็ตการแจ้งเตือน (ลบ sent_notifications)
-  Future<void> _resetNotifications() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.remove('sent_notifications');
-    _sentNotifications.clear();
-    await _fetch_notifications();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('รีเซ็ตการแจ้งเตือนเรียบร้อย')),
-    );
-  }
-
 
   @override
   void initState() {
@@ -118,11 +107,11 @@ class _NotificationPageState extends State<NotificationPage> {
       
       for (var item in items) {
         try {
-          // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสินค้าที่มีมากกว่า 1 ชิ้น)
+          // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสิ่งของที่มีมากกว่า 1 ชิ้น)
           if (item['item_expire_details'] != null && 
               (item['item_expire_details'] as List).isNotEmpty) {
             
-            // กรณีสินค้ามีรายละเอียดแต่ละชิ้น
+            // กรณีสิ่งของมีรายละเอียดแต่ละชิ้น
             final List<dynamic> expire_details = item['item_expire_details'];
             
             for (int index = 0; index < expire_details.length; index++) {
@@ -139,7 +128,7 @@ class _NotificationPageState extends State<NotificationPage> {
               
               if (shouldNotify) {
                 final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
-                final itemName = item['item_name'] ?? 'สินค้าไม่ระบุชื่อ';
+                final itemName = item['item_name'] ?? 'สิ่งของไม่ระบุชื่อ';
                 final areaName = detail['area_name'] ?? item['area_name'] ?? '';
                 
                 // สร้าง unique key สำหรับแต่ละการแจ้งเตือน (item_id + detail_index + วันที่)
@@ -153,7 +142,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
                 final isBBF = dateType == 'BBF';
                 
-                String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+                String title = isBBF ? 'สิ่งของใกล้ควรบริโภคก่อน' : 'สิ่งของใกล้หมดอายุ';
                 String message;
                 
                 if (isBBF) {
@@ -175,8 +164,8 @@ class _NotificationPageState extends State<NotificationPage> {
                     const NotificationDetails(
                       android: AndroidNotificationDetails(
                         'auto_expire_channel',
-                        'แจ้งเตือนสินค้าอัตโนมัติ',
-                        channelDescription: 'แจ้งเตือนสินค้าที่ถึงเวลาอัตโนมัติ',
+                        'แจ้งเตือนสิ่งของอัตโนมัติ',
+                        channelDescription: 'แจ้งเตือนสิ่งของที่ถึงเวลาอัตโนมัติ',
                         importance: Importance.max,
                         priority: Priority.high,
                         showWhen: true,
@@ -204,7 +193,7 @@ class _NotificationPageState extends State<NotificationPage> {
             
             if (shouldNotify) {
               final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
-              final itemName = item['item_name'] ?? 'สินค้าไม่ระบุชื่อ';
+              final itemName = item['item_name'] ?? 'สิ่งของไม่ระบุชื่อ';
               
               // สร้าง unique key สำหรับแต่ละการแจ้งเตือน (item_id + วันที่)
               final notificationKey = '${itemId}_${now.year}-${now.month}-${now.day}';
@@ -217,7 +206,7 @@ class _NotificationPageState extends State<NotificationPage> {
               final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
               final isBBF = dateType == 'BBF';
               
-              String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+              String title = isBBF ? 'สิ่งของใกล้ควรบริโภคก่อน' : 'สิ่งของใกล้หมดอายุ';
               String message;
               
               if (isBBF) {
@@ -239,8 +228,8 @@ class _NotificationPageState extends State<NotificationPage> {
                   const NotificationDetails(
                     android: AndroidNotificationDetails(
                       'auto_expire_channel',
-                      'แจ้งเตือนสินค้าอัตโนมัติ',
-                      channelDescription: 'แจ้งเตือนสินค้าที่ถึงเวลาอัตโนมัติ',
+                      'แจ้งเตือนสิ่งของอัตโนมัติ',
+                      channelDescription: 'แจ้งเตือนสิ่งของที่ถึงเวลาอัตโนมัติ',
                       importance: Importance.max,
                       priority: Priority.high,
                       showWhen: true,
@@ -359,11 +348,11 @@ class _NotificationPageState extends State<NotificationPage> {
           final now = DateTime.now();
           
           for (var item in responseData['data']) {
-            // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสินค้าที่มีมากกว่า 1 ชิ้น)
+            // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสิ่งของที่มีมากกว่า 1 ชิ้น)
             if (item['item_expire_details'] != null && 
                 (item['item_expire_details'] as List).isNotEmpty) {
               
-              // กรณีสินค้ามีรายละเอียดแต่ละชิ้น
+              // กรณีสิ่งของมีรายละเอียดแต่ละชิ้น
               final List<dynamic> expire_details = item['item_expire_details'];
               
               for (int index = 0; index < expire_details.length; index++) {
@@ -427,7 +416,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 }
               }
             } else {
-              // กรณีสินค้าปกติ (1 ชิ้น หรือไม่มี item_expire_details)
+              // กรณีสิ่งของปกติ (1 ชิ้น หรือไม่มี item_expire_details)
               final expireDate = DateTime.parse(item['item_date']);
               final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
               final notifyDate = expireDate.subtract(Duration(days: notifyDays));
@@ -467,7 +456,7 @@ class _NotificationPageState extends State<NotificationPage> {
                   'is_bbf': isBBF,
                   'date_type': dateType,
                   'created_at': now,
-                  'item_data': item, // เก็บข้อมูลดิบของสินค้าจาก calendar_items.php
+                  'item_data': item, // เก็บข้อมูลดิบของสิ่งของจาก calendar_items.php
                 });
               }
             }
@@ -517,7 +506,7 @@ class _NotificationPageState extends State<NotificationPage> {
       // ข้อผิดพลาดในการยกเลิก
     }
     
-    String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+    String title = isBBF ? 'สิ่งของใกล้ควรบริโภคก่อน' : 'สิ่งของใกล้หมดอายุ';
     String message;
     
     if (isBBF) {
@@ -540,8 +529,8 @@ class _NotificationPageState extends State<NotificationPage> {
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'expire_immediate_channel',
-              'แจ้งเตือนสินค้าทันที',
-              channelDescription: 'แจ้งเตือนสินค้าที่ถึงเวลาแล้ว',
+              'แจ้งเตือนสิ่งของทันที',
+              channelDescription: 'แจ้งเตือนสิ่งของที่ถึงเวลาแล้ว',
               importance: Importance.max,
               priority: Priority.high,
               showWhen: true,
@@ -576,8 +565,8 @@ class _NotificationPageState extends State<NotificationPage> {
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'expire_scheduled_channel',
-              'แจ้งเตือนสินค้าตามกำหนด',
-              channelDescription: 'แจ้งเตือนวันหมดอายุสินค้าตามที่ตั้งไว้',
+              'แจ้งเตือนสิ่งของตามกำหนด',
+              channelDescription: 'แจ้งเตือนวันหมดอายุสิ่งของตามที่ตั้งไว้',
               importance: Importance.max,
               priority: Priority.high,
               showWhen: true,
@@ -613,7 +602,7 @@ class _NotificationPageState extends State<NotificationPage> {
       // ข้อผิดพลาดในการยกเลิก
     }
     
-    String title = isBBF ? 'สินค้าใกล้ควรบริโภคก่อน' : 'สินค้าใกล้หมดอายุ';
+    String title = isBBF ? 'สิ่งของใกล้ควรบริโภคก่อน' : 'สิ่งของใกล้หมดอายุ';
     String message;
     
     if (isBBF) {
@@ -636,8 +625,8 @@ class _NotificationPageState extends State<NotificationPage> {
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'expire_immediate_individual_channel',
-              'แจ้งเตือนสินค้าแต่ละชิ้นทันที',
-              channelDescription: 'แจ้งเตือนสินค้าแต่ละชิ้นที่ถึงเวลาแล้ว',
+              'แจ้งเตือนสิ่งของแต่ละชิ้นทันที',
+              channelDescription: 'แจ้งเตือนสิ่งของแต่ละชิ้นที่ถึงเวลาแล้ว',
               importance: Importance.max,
               priority: Priority.high,
               showWhen: true,
@@ -672,8 +661,8 @@ class _NotificationPageState extends State<NotificationPage> {
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'expire_scheduled_individual_channel',
-              'แจ้งเตือนสินค้าแต่ละชิ้นตามกำหนด',
-              channelDescription: 'แจ้งเตือนวันหมดอายุสินค้าแต่ละชิ้นตามที่ตั้งไว้',
+              'แจ้งเตือนสิ่งของแต่ละชิ้นตามกำหนด',
+              channelDescription: 'แจ้งเตือนวันหมดอายุสิ่งของแต่ละชิ้นตามที่ตั้งไว้',
               importance: Importance.max,
               priority: Priority.high,
               showWhen: true,
@@ -692,14 +681,7 @@ class _NotificationPageState extends State<NotificationPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('การแจ้งเตือน'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'รีเซ็ตการแจ้งเตือน',
-            onPressed: _resetNotifications,
-          ),
-        ],
+        title: const Text(''),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -726,23 +708,23 @@ class _NotificationPageState extends State<NotificationPage> {
           Icon(
             Icons.notifications_outlined,
             size: 80,
-            color: Colors.grey,
+            color: Color.fromARGB(255, 0, 0, 0),
           ),
           SizedBox(height: 16),
           Text(
             'ไม่มีการแจ้งเตือน',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 24, // เพิ่มจาก 18 เป็น 24
               fontWeight: FontWeight.w500,
-              color: Colors.grey,
+              color: Color.fromARGB(255, 0, 0, 0),
             ),
           ),
           SizedBox(height: 8),
           Text(
             'การแจ้งเตือนจะแสดงที่นี่',
             style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
+              fontSize: 18, // เพิ่มจาก 14 เป็น 18
+              color: Color.fromARGB(255, 0, 0, 0),
             ),
           ),
         ],
@@ -768,9 +750,9 @@ class _NotificationPageState extends State<NotificationPage> {
       sections.add(const SizedBox(height: 24));
     }
 
-    // ส่วนสินค้าที่เก็บ
+    // ส่วนสิ่งของที่เก็บ
     if (stored_notifications.isNotEmpty) {
-      sections.add(_build_section_header('สินค้าที่เก็บ'));
+      sections.add(_build_section_header('สิ่งของที่เก็บ'));
       sections.addAll(
         stored_notifications.map((notification) => 
           _build_notification_card(notification)
@@ -788,7 +770,7 @@ class _NotificationPageState extends State<NotificationPage> {
       child: Text(
         title,
         style: const TextStyle(
-          fontSize: 16,
+          fontSize: 20, // เพิ่มจาก 16 เป็น 20
           fontWeight: FontWeight.w600,
           color: Colors.black87,
         ),
@@ -885,13 +867,13 @@ class _NotificationPageState extends State<NotificationPage> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Colors.grey.withOpacity(0.1),
-            width: 1,
+            color: const Color.fromARGB(255, 204, 222, 255).withOpacity(0.7),
+            width: 5,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.05),
-              blurRadius: 4,
+              color: const Color(0xFFF3E8FF).withOpacity(0.5),
+              blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
@@ -920,11 +902,11 @@ class _NotificationPageState extends State<NotificationPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ชื่อสินค้า
+                  // ชื่อสิ่งของ
                   Text(
                     notification['title'],
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 20, // เพิ่มจาก 16 เป็น 20
                       fontWeight: FontWeight.w600,
                       color: Colors.black87,
                     ),
@@ -936,7 +918,7 @@ class _NotificationPageState extends State<NotificationPage> {
                   Text(
                     notification['description'],
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 16, // เพิ่มจาก 14 เป็น 16
                       color: statusColor,
                       fontWeight: FontWeight.w500,
                     ),
@@ -958,16 +940,16 @@ class _NotificationPageState extends State<NotificationPage> {
                           return Text(
                             'จัดเก็บ: $locations',
                             style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                              fontSize: 14, // เพิ่มจาก 12 เป็น 14
+                              color: Color.fromARGB(255, 0, 0, 0),
                             ),
                           );
                         } else {
                           return Text(
                             'จัดเก็บ: ${item_data['storage_location'] ?? item_data['area_name'] ?? 'ไม่ระบุ'}',
                             style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                              fontSize: 14, // เพิ่มจาก 12 เป็น 14
+                              color: Color.fromARGB(255, 0, 0, 0),
                             ),
                           );
                         }
@@ -980,8 +962,8 @@ class _NotificationPageState extends State<NotificationPage> {
                   Text(
                     notification['date'],
                     style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
+                      fontSize: 14, // เพิ่มจาก 12 เป็น 14
+                      color: Color.fromARGB(255, 0, 0, 0),
                     ),
                   ),
                 ],

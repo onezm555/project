@@ -115,143 +115,350 @@ class _ConfirmOtpAndResetPasswordPageState extends State<ConfirmOtpAndResetPassw
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('รีเซ็ตรหัสผ่าน'),
-        backgroundColor: const Color(0xFF4A90E2),
-        foregroundColor: Colors.white,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFF3E8FF), // ม่วงอ่อน (purple-50)
+              Color(0xFFE9D5FF), // ม่วงกลาง (purple-100)
+              Color(0xFFDDD6FE), // ม่วงไวโอเล็ต (violet-200)
+              Color(0xFFF0E6FF), // ลาเวนเดอร์อ่อน
+            ],
+          ),
+        ),
+        child: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 40),
-              Text(
-                'เราได้ส่งรหัสยืนยันไปยัง ${widget.email} กรุณากรอกรหัสและรหัสผ่านใหม่ของคุณ',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-              ),
-              const SizedBox(height: 32),
-              TextFormField(
-                controller: _otpController,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                decoration: InputDecoration(
-                  hintText: 'รหัสยืนยัน (OTP)',
-                  prefixIcon: const Icon(Icons.vpn_key_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกรหัสยืนยัน';
-                  }
-                  if (value.length != 6) {
-                    return 'รหัสยืนยันต้องมี 6 ตัวเลข';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _newPasswordController,
-                obscureText: !_isNewPasswordVisible,
-                decoration: InputDecoration(
-                  hintText: 'รหัสผ่านใหม่',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _isNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isNewPasswordVisible = !_isNewPasswordVisible;
-                      });
-                    },
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกรหัสผ่านใหม่';
-                  }
-                  if (value.length < 6) {
-                    return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _confirmNewPasswordController,
-                obscureText: !_isConfirmNewPasswordVisible,
-                decoration: InputDecoration(
-                  hintText: 'ยืนยันรหัสผ่านใหม่',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _isConfirmNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isConfirmNewPasswordVisible = !_isConfirmNewPasswordVisible;
-                      });
-                    },
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณายืนยันรหัสผ่านใหม่';
-                  }
-                  if (value != _newPasswordController.text) {
-                    return 'รหัสผ่านไม่ตรงกัน';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _resetPassword,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4A90E2),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              // Custom AppBar
+              Container(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
-                        )
-                      : const Text(
-                          'รีเซ็ตรหัสผ่าน',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                        ],
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back_ios, color: Colors.black87),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'รีเซ็ตรหัสผ่าน',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 40),
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 15,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            'เราได้ส่งรหัสยืนยันไปยัง ${widget.email} กรุณากรอกรหัสและรหัสผ่านใหม่ของคุณ',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[700],
+                              height: 1.5,
+                            ),
                           ),
                         ),
+                        const SizedBox(height: 32),
+                        // OTP Field
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: TextFormField(
+                            controller: _otpController,
+                            keyboardType: TextInputType.number,
+                            maxLength: 6,
+                            decoration: InputDecoration(
+                              hintText: 'รหัสยืนยัน (OTP)',
+                              hintStyle: TextStyle(color: Colors.grey[400]),
+                              prefixIcon: Icon(
+                                Icons.vpn_key_outlined,
+                                color: Colors.purple[400],
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: Colors.purple[400]!,
+                                  width: 2,
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 18,
+                              ),
+                              counterText: '',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'กรุณากรอกรหัสยืนยัน';
+                              }
+                              if (value.length != 6) {
+                                return 'รหัสยืนยันต้องมี 6 ตัวเลข';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        // New Password Field
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: TextFormField(
+                            controller: _newPasswordController,
+                            obscureText: !_isNewPasswordVisible,
+                            decoration: InputDecoration(
+                              hintText: 'รหัสผ่านใหม่',
+                              hintStyle: TextStyle(color: Colors.grey[400]),
+                              prefixIcon: Icon(
+                                Icons.lock_outline,
+                                color: Colors.purple[400],
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _isNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                                  color: Colors.purple[400],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _isNewPasswordVisible = !_isNewPasswordVisible;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: Colors.purple[400]!,
+                                  width: 2,
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 18,
+                              ),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'กรุณากรอกรหัสผ่านใหม่';
+                              }
+                              if (value.length < 6) {
+                                return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        // Confirm Password Field
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: TextFormField(
+                            controller: _confirmNewPasswordController,
+                            obscureText: !_isConfirmNewPasswordVisible,
+                            decoration: InputDecoration(
+                              hintText: 'ยืนยันรหัสผ่านใหม่',
+                              hintStyle: TextStyle(color: Colors.grey[400]),
+                              prefixIcon: Icon(
+                                Icons.lock_outline,
+                                color: Colors.purple[400],
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _isConfirmNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                                  color: Colors.purple[400],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _isConfirmNewPasswordVisible = !_isConfirmNewPasswordVisible;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: Colors.purple[400]!,
+                                  width: 2,
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 18,
+                              ),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'กรุณายืนยันรหัสผ่านใหม่';
+                              }
+                              if (value != _newPasswordController.text) {
+                                return 'รหัสผ่านไม่ตรงกัน';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+                        // Reset Button
+                        Container(
+                          height: 55,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0xFF9C4AE0),
+                                Color(0xFF7C3AED),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.purple.withOpacity(0.3),
+                                blurRadius: 15,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _resetPassword,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : const Text(
+                                    'รีเซ็ตรหัสผ่าน',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],

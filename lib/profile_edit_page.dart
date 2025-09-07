@@ -21,13 +21,22 @@ class ProfileEditPage extends StatefulWidget {
 
 class _ProfileEditPageState extends State<ProfileEditPage> {
   final ImagePicker _picker = ImagePicker();
+  bool _isUploading = false; // เพิ่มตัวแปรสำหรับสถานะการอัปโหลด
+  bool _isUpdatingProfile = false; // เพิ่มตัวแปรสำหรับสถานะการอัปเดตโปรไฟล์
+  bool _isChangingPassword = false; // เพิ่มตัวแปรสำหรับสถานะการเปลี่ยนรหัสผ่าน
 Future<void> _pickAndUploadImage() async {
+  if (_isUploading) return; // ป้องกันการอัปโหลดซ้ำ
+  
   print('เริ่มเลือกและอัปโหลดรูปภาพ');
   final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
   if (image == null) {
     print('ไม่ได้เลือกรูปภาพ');
     return;
   }
+
+  setState(() {
+    _isUploading = true;
+  });
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
   final int? userIdInt = prefs.getInt('user_id');
@@ -40,10 +49,13 @@ Future<void> _pickAndUploadImage() async {
   if (userId == null || userId.isEmpty) {
     _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
     print('ไม่พบ user_id ใน SharedPreferences');
+    setState(() {
+      _isUploading = false;
+    });
     return;
   }
 
-  final url = Uri.parse('${_apiBaseUrl}upload_profile_image.php');
+  final url = Uri.parse('${_apiBaseUrl.endsWith('/') ? _apiBaseUrl : '$_apiBaseUrl/'}upload_profile_image.php');
   try {
     var request = http.MultipartRequest('POST', url);
     request.fields['user_id'] = userId;
@@ -72,6 +84,10 @@ Future<void> _pickAndUploadImage() async {
   } catch (e) {
     _showSnackBar('เกิดข้อผิดพลาด: $e', Colors.red);
     print('เกิดข้อผิดพลาด: $e');
+  } finally {
+    setState(() {
+      _isUploading = false;
+    });
   }
 }
   final TextEditingController _nameController = TextEditingController();
@@ -90,6 +106,7 @@ Future<void> _pickAndUploadImage() async {
   @override
   void initState() {
     super.initState();
+    print('ProfileEditPage API Base URL: $_apiBaseUrl'); // Debug เพิ่ม
     _currentUserName = widget.userName;
     _nameController.text = widget.userName;
     _fetchUserData(); // เรียกฟังก์ชันดึงข้อมูลผู้ใช้เมื่อ Widget ถูกสร้าง
@@ -116,7 +133,7 @@ Future<void> _pickAndUploadImage() async {
     }
 
     final url = Uri.parse(
-      '${_apiBaseUrl}get_user_data.php',
+      '${_apiBaseUrl.endsWith('/') ? _apiBaseUrl : '$_apiBaseUrl/'}get_user_data.php',
     ); // URL ของ API ดึงข้อมูลผู้ใช้
 
     try {
@@ -166,6 +183,8 @@ Future<void> _pickAndUploadImage() async {
   }
 
   Future<void> _updateProfile() async {
+    if (_isUpdatingProfile) return; // ป้องกันการอัปเดตซ้ำ
+    
     final newName = _nameController.text.trim();
     print('[DEBUG] _updateProfile: newName = $newName');
     if (newName.isEmpty) {
@@ -180,6 +199,10 @@ Future<void> _pickAndUploadImage() async {
       return;
     }
 
+    setState(() {
+      _isUpdatingProfile = true;
+    });
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
     final int? userIdInt = prefs.getInt('user_id');
     String? userId;
@@ -191,10 +214,13 @@ Future<void> _pickAndUploadImage() async {
     if (userId == null || userId.isEmpty) {
       _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
       print('[DEBUG] _updateProfile: ไม่พบ user_id');
+      setState(() {
+        _isUpdatingProfile = false;
+      });
       return;
     }
 
-    final url = Uri.parse('${_apiBaseUrl}update_profile.php');
+    final url = Uri.parse('${_apiBaseUrl.endsWith('/') ? _apiBaseUrl : '$_apiBaseUrl/'}update_profile.php');
     print('[DEBUG] _updateProfile: url = $url');
     try {
       final response = await http.post(
@@ -224,10 +250,16 @@ Future<void> _pickAndUploadImage() async {
     } catch (e) {
       _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
       print('[DEBUG] _updateProfile: exception = $e');
+    } finally {
+      setState(() {
+        _isUpdatingProfile = false;
+      });
     }
   }
 
   Future<void> _changePassword() async {
+    if (_isChangingPassword) return; // ป้องกันการเปลี่ยนรหัสผ่านซ้ำ
+    
     final oldPassword = _oldPasswordController.text;
     final newPassword = _newPasswordController.text;
     final confirmNewPassword = _confirmNewPasswordController.text;
@@ -253,6 +285,10 @@ Future<void> _pickAndUploadImage() async {
       return;
     }
 
+    setState(() {
+      _isChangingPassword = true;
+    });
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
     final int? userIdInt = prefs.getInt('user_id');
     String? userId;
@@ -263,10 +299,13 @@ Future<void> _pickAndUploadImage() async {
     if (userId == null || userId.isEmpty) {
       _showSnackBar('ไม่พบ ID ผู้ใช้', Colors.red);
       print('[DEBUG] _changePassword: ไม่พบ user_id');
+      setState(() {
+        _isChangingPassword = false;
+      });
       return;
     }
 
-    final url = Uri.parse('${_apiBaseUrl}upload_profile_image.php');
+    final url = Uri.parse('${_apiBaseUrl.endsWith('/') ? _apiBaseUrl : '$_apiBaseUrl/'}upload_profile_image.php');
     print('[DEBUG] _changePassword: url = $url');
     try {
       final response = await http.post(
@@ -295,6 +334,10 @@ Future<void> _pickAndUploadImage() async {
     } catch (e) {
       _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อ: $e', Colors.red);
       print('[DEBUG] _changePassword: exception = $e');
+    } finally {
+      setState(() {
+        _isChangingPassword = false;
+      });
     }
   }
 
@@ -304,6 +347,42 @@ Future<void> _pickAndUploadImage() async {
         content: Text(message),
         backgroundColor: color,
         duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: true,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey[600]),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.orangeAccent, width: 2),
+        ),
+        filled: true,
+        fillColor: Colors.grey[50],
+        labelStyle: TextStyle(color: Colors.grey[600]),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
     );
   }
@@ -323,7 +402,8 @@ Future<void> _pickAndUploadImage() async {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 0,
+        elevation: 2,
+        shadowColor: Colors.grey.withOpacity(0.1),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: Colors.black87),
           onPressed: () {
@@ -334,156 +414,332 @@ Future<void> _pickAndUploadImage() async {
           'โปรไฟล์ผู้ใช้',
           style: TextStyle(
             color: Colors.black87,
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
           ),
         ),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _isLoading
-                  ? const CircularProgressIndicator() // แสดง Indicator ขณะโหลด
-                  : GestureDetector(
-                      onTap: _pickAndUploadImage,
-                      child: CircleAvatar(
-                        radius: 60,
-                        backgroundColor: Colors.grey[300],
-                        backgroundImage:
-                            (_userImgUrl != null && _userImgUrl!.isNotEmpty)
-                            ? NetworkImage(_userImgUrl!)
-                            : null,
-                        child: (_userImgUrl == null || _userImgUrl!.isEmpty)
-                            ? Icon(
-                                Icons.person,
-                                size: 80,
-                                color: Colors.grey[600],
-                              )
-                            : null,
-                      ),
-                    ),
-              const SizedBox(height: 15),
-              SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.max,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
+          children: [
+            // Profile Header Section
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.1),
+                    spreadRadius: 1,
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(30.0),
+                child: Column(
                   children: [
-                    Text(
-                      _currentUserName,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(width: 5),
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Colors.black54),
-                      onPressed: () {
-                        _nameController.text = _currentUserName;
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text(
-                              'แก้ไขชื่อผู้ใช้',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w500,
+                    _isLoading
+                        ? const CircularProgressIndicator()
+                        : Stack(
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.grey.withOpacity(0.3),
+                                      spreadRadius: 2,
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: CircleAvatar(
+                                  radius: 70,
+                                  backgroundColor: Colors.grey[200],
+                                  backgroundImage: (_userImgUrl != null && _userImgUrl!.isNotEmpty)
+                                      ? NetworkImage(_userImgUrl!)
+                                      : null,
+                                  child: (_userImgUrl == null || _userImgUrl!.isEmpty)
+                                      ? Icon(
+                                          Icons.person,
+                                          size: 90,
+                                          color: Colors.grey[400],
+                                        )
+                                      : null,
+                                ),
                               ),
-                            ),
-                            content: TextField(
-                              controller: _nameController,
-                              decoration: const InputDecoration(
-                                labelText: 'ชื่อผู้ใช้',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('ยกเลิก'),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.pop(context);
-                                  _updateProfile();
-                                },
-                                child: const Text('บันทึก'),
+                              if (_isUploading)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black.withOpacity(0.5),
+                                    ),
+                                    child: const Center(
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 3,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: GestureDetector(
+                                  onTap: _isUploading ? null : _pickAndUploadImage,
+                                  child: Container(
+                                    width: 45,
+                                    height: 45,
+                                    decoration: BoxDecoration(
+                                      color: _isUploading ? Colors.grey : Colors.blueAccent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 3,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.grey.withOpacity(0.3),
+                                          spreadRadius: 1,
+                                          blurRadius: 5,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Icon(
+                                      _isUploading ? Icons.hourglass_empty : Icons.camera_alt,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                        );
-                      },
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _currentUserName,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () {
+                            _nameController.text = _currentUserName;
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                title: const Text(
+                                  'แก้ไขชื่อผู้ใช้',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                content: TextField(
+                                  controller: _nameController,
+                                  decoration: InputDecoration(
+                                    labelText: 'ชื่อผู้ใช้',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: const BorderSide(
+                                        color: Colors.blueAccent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text(
+                                      'ยกเลิก',
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: _isUpdatingProfile 
+                                        ? null 
+                                        : () {
+                                            Navigator.pop(context);
+                                            _updateProfile();
+                                          },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _isUpdatingProfile ? Colors.grey : Colors.blueAccent,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    child: _isUpdatingProfile
+                                        ? const SizedBox(
+                                            height: 16,
+                                            width: 16,
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Text(
+                                            'บันทึก',
+                                            style: TextStyle(color: Colors.white),
+                                          ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blueAccent.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.edit,
+                              color: Colors.blueAccent,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      widget.userEmail,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w400,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 40),
-              const Text(
-                'เปลี่ยนรหัสผ่าน',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _oldPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'รหัสผ่านเดิม',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_outline),
-                ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _newPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'รหัสผ่านใหม่',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_open),
-                ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _confirmNewPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'ยืนยันรหัสผ่านใหม่',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
-                ),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _changePassword,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Password Change Section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.1),
+                      spreadRadius: 1,
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
-                  ),
-                  child: const Text(
-                    'เปลี่ยนรหัสผ่าน',
-                    style: TextStyle(fontSize: 18, color: Colors.white),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(25.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.orangeAccent.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.security,
+                              color: Colors.orangeAccent,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'เปลี่ยนรหัสผ่าน',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 25),
+                      _buildPasswordField(
+                        controller: _oldPasswordController,
+                        label: 'รหัสผ่านเดิม',
+                        icon: Icons.lock_outline,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildPasswordField(
+                        controller: _newPasswordController,
+                        label: 'รหัสผ่านใหม่',
+                        icon: Icons.lock_open,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildPasswordField(
+                        controller: _confirmNewPasswordController,
+                        label: 'ยืนยันรหัสผ่านใหม่',
+                        icon: Icons.lock,
+                      ),
+                      const SizedBox(height: 30),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isChangingPassword ? null : _changePassword,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _isChangingPassword ? Colors.grey : Colors.orangeAccent,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: _isChangingPassword ? 0 : 2,
+                          ),
+                          child: _isChangingPassword
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  'เปลี่ยนรหัสผ่าน',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+            
+            const SizedBox(height: 30),
+          ],
         ),
       ),
     );

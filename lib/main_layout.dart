@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'index.dart'; // Ensure this path is correct
+import 'index_working.dart'; // Import the working index page
 import 'calendar.dart';
 import 'notification.dart';
 import 'menu.dart';
@@ -39,9 +39,10 @@ class _MainLayoutState extends State<MainLayout> {
   List<String> _storage_locations = [];
   List<String> _categories = [];
   bool _is_filter_options_loading = true;
+  String _user_name = ''; // เพิ่มตัวแปรสำหรับเก็บชื่อผู้ใช้
 
-  // GlobalKey to access IndexPage's state methods
-  final GlobalKey<IndexPageState> _indexPageKey = GlobalKey<IndexPageState>();
+  // Reference to IndexPageState for calling methods
+  dynamic _indexPageState;
 
   @override
   void initState() {
@@ -49,12 +50,28 @@ class _MainLayoutState extends State<MainLayout> {
     _selected_index = widget.initial_tab;
     _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project'; // Load API base URL
     _fetch_filter_options(); // Fetch filter dropdown options when MainLayout initializes
+    _load_user_name(); // โหลดชื่อผู้ใช้
   }
 
   @override
   void dispose() {
     _search_controller.dispose();
     super.dispose();
+  }
+
+  // ฟังก์ชันสำหรับโหลดชื่อผู้ใช้จาก SharedPreferences
+  Future<void> _load_user_name() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? userName = prefs.getString('user_name') ?? prefs.getString('username') ?? prefs.getString('name');
+      if (userName != null && userName.isNotEmpty) {
+        setState(() {
+          _user_name = userName;
+        });
+      }
+    } catch (e) {
+      print('Error loading user name: $e');
+    }
   }
 
   // Function to fetch storage locations and categories from your PHP APIs
@@ -98,16 +115,41 @@ class _MainLayoutState extends State<MainLayout> {
     }
   }
 
-  // List of pages, now using the GlobalKey for IndexPage
+  // List of pages, now using callback approach
   late final List<Widget> _pages = [
-    IndexPage(key: _indexPageKey), // Assign the GlobalKey here
+    IndexPageWorking(
+      onStateCreated: (state) {
+        _indexPageState = state;
+      },
+    ), // Use the working IndexPage
     const CalendarPage(),
     const NotificationPage(),
     const MenuPage(),
   ];
 
-  final List<String> _page_titles = [
-    'หน้าแรก',
+  // ฟังก์ชันสำหรับสร้างข้อความทักทายตามเวลา
+  String _get_greeting() {
+    final now = DateTime.now();
+    final hour = now.hour;
+    
+    String greeting;
+    if (hour >= 5 && hour < 12) {
+      greeting = 'สวัสดีตอนเช้า';
+    } else if (hour >= 12 && hour < 17) {
+      greeting = 'สวัสดีตอนกลางวัน';
+    } else {
+      greeting = 'สวัสดีตอนเย็น';
+    }
+    
+    // เพิ่มชื่อผู้ใช้ถ้ามี
+    if (_user_name.isNotEmpty) {
+      return '$greeting คุณ$_user_name';
+    }
+    return greeting;
+  }
+
+  List<String> get _page_titles => [
+    _get_greeting(),
     'ปฏิทิน',
     'การแจ้งเตือน',
     'เมนู',
@@ -122,9 +164,9 @@ class _MainLayoutState extends State<MainLayout> {
   void _handle_search(String query) {
     print('Searching for: $query');
     if (query.trim().isEmpty) {
-      _indexPageKey.currentState?.fetchItemsData(filters: {});
+      _indexPageState?.fetchItemsData(filters: {});
     } else {
-      _indexPageKey.currentState?.fetchItemsData(filters: {'search_query': query});
+      _indexPageState?.fetchItemsData(filters: {'search_query': query});
     }
   }
 
@@ -189,7 +231,7 @@ class _MainLayoutState extends State<MainLayout> {
                   ),
                 ),
                 child: const Text(
-                  'เพิ่มสินค้าใหม่',
+                  'เพิ่มสิ่งของใหม่',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
@@ -215,7 +257,7 @@ class _MainLayoutState extends State<MainLayout> {
                   ),
                 ),
                 child: const Text(
-                  'เพิ่มสินค้าที่มีอยู่(บาร์โค้ด)',
+                  'เพิ่มสิ่งของที่มีอยู่(บาร์โค้ด)',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
@@ -238,7 +280,7 @@ class _MainLayoutState extends State<MainLayout> {
     ).then((result) {
       if (result == true) {
         // Refresh data on IndexPage after adding item
-        _indexPageKey.currentState?.fetchItemsData();
+        _indexPageState?.fetchItemsData();
       }
     });
   }
@@ -259,7 +301,7 @@ class _MainLayoutState extends State<MainLayout> {
           result.isNotEmpty && 
           result != '-1') {
         
-        // ค้นหาข้อมูลสินค้าในฐานข้อมูลด้วยบาร์โค้ด
+        // ค้นหาข้อมูลสิ่งของในฐานข้อมูลด้วยบาร์โค้ด
         await _search_existing_item_by_barcode(result);
       }
       // ถ้าเป็น -1 หรือค่าอื่นที่ไม่ต้องการ ไม่ต้องทำอะไร
@@ -300,44 +342,68 @@ class _MainLayoutState extends State<MainLayout> {
         return;
       }
 
-      // เรียก API เพื่อค้นหาสินค้าด้วยบาร์โค้ด
-      final response = await http.get(
-        Uri.parse('$_api_base_url/search_item_by_barcode.php?user_id=$userId&barcode=${Uri.encodeComponent(barcode)}')
-      );
+      // เรียก API เพื่อค้นหาสิ่งของด้วยบาร์โค้ด
+      final apiUrl = '$_api_base_url/search_item_by_barcode.php?user_id=$userId&barcode=${Uri.encodeComponent(barcode)}';
+      print('Calling API: $apiUrl');
+      
+      final response = await http.get(Uri.parse(apiUrl));
+      
+      print('Response status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
       Navigator.pop(context); // ปิด loading
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        // เพิ่ม debug เพื่อดูข้อมูลที่ได้จาก API
-        print('API Response: $data');
-        
-        if (data['success'] == true && data['data'] != null) {
-          // พบข้อมูลสินค้า - นำไปยังหน้าเพิ่มสินค้าพร้อมข้อมูลเดิม
+        try {
+          final data = jsonDecode(response.body);
+          
+          // เพิ่ม debug เพื่อดูข้อมูลที่ได้จาก API
+          print('API Response: $data');
+          print('Response success: ${data['success']}');
+          print('Response data: ${data['data']}');
+          
+          if (data['success'] == true && data['data'] != null) {
+          // พบข้อมูลสิ่งของ - นำไปยังหน้าเพิ่มสิ่งของพร้อมข้อมูลเดิม
           final itemData = data['data'];
           
-          // เพิ่ม debug เพื่อดูข้อมูลสินค้า
-          print('Item Data: $itemData');
+          // เพิ่ม debug เพื่อดูข้อมูลสิ่งของ
+          print('Item Data from API: $itemData');
+          print('item_name: ${itemData['item_name']}');
+          print('item_barcode: ${itemData['item_barcode']}');
+          print('category: ${itemData['category']}');
+          print('storage_location: ${itemData['storage_location']}');
+          print('date_type: ${itemData['date_type']}');
           
           // แสดงข้อความแจ้งเตือนก่อน
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('พบข้อมูลสินค้า: ${itemData['item_name']}'),
+              content: Text('พบข้อมูลสิ่งของ: ${itemData['item_name']}'),
               backgroundColor: Colors.green,
             ),
           );
           
           final Map<String, dynamic> itemDataToSend = {
+            // ชื่อสิ่งของ
             'name': itemData['item_name'] ?? '',
-            'item_name': itemData['item_name'] ?? '', // เพิ่มทั้งสองชื่อ field
+            'item_name': itemData['item_name'] ?? '',
+            
+            // ประเภท/หมวดหมู่
             'category': itemData['category'] ?? '',
-            'type_name': itemData['category'] ?? '', // เพิ่มทั้งสองชื่อ field
-            'storage_location': itemData['storage_location'] ?? '',
-            'area_name': itemData['storage_location'] ?? '', // เพิ่มทั้งสองชื่อ field
+            'type_name': itemData['category'] ?? '',
+            
+            // รหัสบาร์โค้ด
             'barcode': itemData['item_barcode'] ?? barcode,
+            'item_barcode': itemData['item_barcode'] ?? barcode,
+            
+            // ข้อมูลอื่นๆ
+            'storage_location': itemData['storage_location'] ?? '',
+            'area_name': itemData['storage_location'] ?? '',
             'unit': itemData['date_type'] == 'BBF' ? 'ควรบริโภคก่อน(BBF)' : 'วันหมดอายุ(EXP)',
-            'date_type': itemData['date_type'] == 'BBF' ? 'ควรบริโภคก่อน(BBF)' : 'วันหมดอายุ(EXP)',
+            'date_type': itemData['date_type'] ?? 'EXP',
+            
+            // เพิ่มข้อมูลเพิ่มเติมถ้ามี
+            'description': itemData['description'] ?? '',
+            'brand': itemData['brand'] ?? '',
           };
           
           // เพิ่ม debug เพื่อดูข้อมูลที่จะส่งไป
@@ -347,19 +413,28 @@ class _MainLayoutState extends State<MainLayout> {
             context,
             MaterialPageRoute(
               builder: (context) => AddItemPage(
-                is_existing_item: true, // เปลี่ยนเป็น true เพื่อให้เติมข้อมูลเดิม
+                is_existing_item: false, // เปลี่ยนเป็น false เพื่อให้เป็นโหมดเพิ่มใหม่
                 item_data: itemDataToSend,
               ),
             ),
           ).then((result) {
             if (result == true) {
               // Refresh data on IndexPage after adding item
-              _indexPageKey.currentState?.fetchItemsData();
+              _indexPageState?.fetchItemsData();
             }
           });
         } else {
-          // ไม่พบข้อมูลสินค้า - ให้ผู้ใช้เพิ่มใหม่
+          // ไม่พบข้อมูลสิ่งของ - ให้ผู้ใช้เพิ่มใหม่
           _show_item_not_found_dialog(barcode);
+        }
+        } catch (e) {
+          print('Error parsing JSON response: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('เกิดข้อผิดพลาดในการประมวลผลข้อมูล: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -385,8 +460,8 @@ class _MainLayoutState extends State<MainLayout> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('ไม่พบข้อมูลสินค้า'),
-        content: Text('ไม่พบสินค้าที่มีรหัสบาร์โค้ด: $barcode\nคุณต้องการเพิ่มสินค้าใหม่หรือไม่?'),
+        title: const Text('ไม่พบข้อมูลสิ่งของ'),
+        content: Text('ไม่พบสิ่งของที่มีรหัสบาร์โค้ด: $barcode\nคุณต้องการเพิ่มสิ่งของใหม่หรือไม่?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -395,7 +470,7 @@ class _MainLayoutState extends State<MainLayout> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // เพิ่มสินค้าใหม่พร้อมรหัสบาร์โค้ด
+              // เพิ่มสิ่งของใหม่พร้อมรหัสบาร์โค้ด
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -408,7 +483,7 @@ class _MainLayoutState extends State<MainLayout> {
                 ),
               ).then((result) {
                 if (result == true) {
-                  _indexPageKey.currentState?.fetchItemsData();
+                  _indexPageState?.fetchItemsData();
                 }
               });
             },
@@ -680,7 +755,7 @@ class _MainLayoutState extends State<MainLayout> {
                 }
 
                 // Call fetchItemsData on IndexPage with the collected filters
-                _indexPageKey.currentState?.fetchItemsData(filters: filters);
+                _indexPageState?.fetchItemsData(filters: filters);
                 Navigator.pop(context); // Close the modal
               },
               style: ElevatedButton.styleFrom(
@@ -712,7 +787,7 @@ class _MainLayoutState extends State<MainLayout> {
                   _filter_expiring_30_days = false;
                 });
                 // Call fetchItemsData on IndexPage to clear filters (fetch all)
-                _indexPageKey.currentState?.fetchItemsData(filters: {}); // Pass empty filters
+                _indexPageState?.fetchItemsData(filters: {}); // Pass empty filters
                 Navigator.pop(context); // Close the modal
               },
               style: OutlinedButton.styleFrom(
@@ -738,19 +813,61 @@ class _MainLayoutState extends State<MainLayout> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        backgroundColor: Colors.grey[50],
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: Text(
-          _page_titles[_selected_index],
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: Colors.black,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFF3E8FF), // ม่วงอ่อน (purple-50)
+                Color(0xFFE9D5FF), // ม่วงกลาง (purple-100)
+                Color(0xFFDDD6FE), // ม่วงไวโอเล็ต (violet-200)
+                Color(0xFFF0E6FF), // ลาเวนเดอร์อ่อน
+              ],
+            ),
+          ),
+          child: SafeArea(
+            child: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              automaticallyImplyLeading: false,
+              title: _selected_index == 0
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        _page_titles[_selected_index],
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    )
+                  : Text(
+                      _page_titles[_selected_index],
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+              centerTitle: _selected_index == 0 ? false : true,
+            ),
           ),
         ),
-        centerTitle: true,
       ),
       body: Column(
         children: [
@@ -761,64 +878,83 @@ class _MainLayoutState extends State<MainLayout> {
                 children: [
                   Expanded(
                     child: Container(
-                      height: 45,
+                      height: 60, // เพิ่มจาก 45 เป็น 60
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16), // เพิ่มจาก 12 เป็น 16
                         border: Border.all(
                           color: Colors.grey[300]!,
-                          width: 1,
+                          width: 1.5, // เพิ่มความหนาจาก 1 เป็น 1.5
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: TextField(
                         controller: _search_controller,
                         onChanged: _handle_search, // เปลี่ยนจาก onSubmitted เป็น onChanged
+                        style: const TextStyle(
+                          fontSize: 18, // เพิ่มขนาดตัวอักษรที่พิมพ์
+                          fontWeight: FontWeight.w500,
+                        ),
                         decoration: InputDecoration(
-                          hintText: 'ค้นหาสินค้าของคุณ',
+                          hintText: 'ค้นหาสิ่งของของคุณ',
                           hintStyle: const TextStyle(
                             color: Colors.grey,
-                            fontSize: 14,
+                            fontSize: 18, // เพิ่มจาก 14 เป็น 18
+                            fontWeight: FontWeight.w400,
                           ),
                           prefixIcon: const Icon(
                             Icons.search,
                             color: Colors.grey,
-                            size: 20,
+                            size: 28, // เพิ่มจาก 20 เป็น 28
                           ),
                           suffixIcon: IconButton(
                             onPressed: _scan_barcode,
                             icon: const Icon(
                               Icons.qr_code_scanner,
                               color: Colors.grey,
-                              size: 20,
+                              size: 28, // เพิ่มจาก 20 เป็น 28
                             ),
                           ),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
+                            horizontal: 20, // เพิ่มจาก 16 เป็น 20
+                            vertical: 16, // เพิ่มจาก 12 เป็น 16
                           ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12), // เพิ่มจาก 8 เป็น 12
                   Container(
-                    width: 45,
-                    height: 45,
+                    width: 60, // เพิ่มจาก 45 เป็น 60
+                    height: 60, // เพิ่มจาก 45 เป็น 60
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16), // เพิ่มจาก 12 เป็น 16
                       border: Border.all(
                         color: Colors.grey[300]!,
-                        width: 1,
+                        width: 1.5, // เพิ่มความหนาจาก 1 เป็น 1.5
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: IconButton(
                       onPressed: _open_filter, // Calls the full filter modal
                       icon: const Icon(
                         Icons.tune,
                         color: Colors.grey,
-                        size: 20,
+                        size: 28, // เพิ่มจาก 20 เป็น 28
                       ),
                     ),
                   ),
@@ -834,15 +970,15 @@ class _MainLayoutState extends State<MainLayout> {
         ],
       ),
       floatingActionButton: _selected_index == 0 ? Container(
-        width: 60,
-        height: 60,
+        width: 70, // เพิ่มจาก 60 เป็น 70
+        height: 70, // เพิ่มจาก 60 เป็น 70
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(35), // เพิ่มจาก 30 เป็น 35
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF4A90E2).withOpacity(0.3),
@@ -856,7 +992,7 @@ class _MainLayoutState extends State<MainLayout> {
           icon: const Icon(
             Icons.add,
             color: Colors.white,
-            size: 28,
+            size: 32, // เพิ่มจาก 28 เป็น 32
           ),
         ),
       ) : null,
@@ -866,9 +1002,9 @@ class _MainLayoutState extends State<MainLayout> {
           color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
+              color: const Color.fromARGB(255, 78, 14, 255).withOpacity(0.2),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
             ),
           ],
         ),
@@ -879,8 +1015,10 @@ class _MainLayoutState extends State<MainLayout> {
           backgroundColor: Colors.white,
           selectedItemColor: const Color(0xFF4A90E2),
           unselectedItemColor: Colors.grey,
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
+          selectedFontSize: 16, // เพิ่มจาก 24 เป็น 16 (ที่เหมาะสม)
+          unselectedFontSize: 14, // เพิ่มจาก 20 เป็น 14 (ที่เหมาะสม)
+          selectedIconTheme: const IconThemeData(size: 28), // เพิ่มขนาด icon
+          unselectedIconTheme: const IconThemeData(size: 24), // เพิ่มขนาด icon
           elevation: 0,
           items: const [
             BottomNavigationBarItem(

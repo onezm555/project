@@ -14,7 +14,8 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   int _selected_year = DateTime.now().year; 
-  bool _show_only_expiry_months = false; 
+  int _selected_month = DateTime.now().month; // เพิ่มเดือนที่เลือก
+  int _display_mode = 0; // 0: ทั้งหมด, 1: เฉพาะเดือนที่มีสิ่งของ, 2: ต่อเดือน
 
   Map<String, List<Map<String, dynamic>>> _all_expiry_items_by_date = {};
   bool _is_loading = true;
@@ -54,10 +55,7 @@ class _CalendarPageState extends State<CalendarPage> {
     });
 
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    final int? userId = prefs.getInt('user_id'); // userId ถูกประกาศที่นี่
-
-    // *** ย้าย debugPrint มาไว้ตรงนี้ ***
-    debugPrint('Fetched User ID: $userId');
+    final int? userId = prefs.getInt('user_id');
 
     if (userId == null) {
       setState(() {
@@ -68,15 +66,12 @@ class _CalendarPageState extends State<CalendarPage> {
     }
 
     final String apiUrl = '$_api_base_url/calendar_items.php?user_id=$userId';
-    
-    debugPrint('Calendar fetching from: $apiUrl');
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
       if (response.statusCode == 200) {
         final response_data = json.decode(utf8.decode(response.bodyBytes));
-        debugPrint('Calendar API response: $response_data');
         if (response_data['success'] == true) {
           final List<dynamic> items = response_data['data'];
           Map<String, List<Map<String, dynamic>>> new_expiry_items_by_date = {};
@@ -124,7 +119,6 @@ class _CalendarPageState extends State<CalendarPage> {
         _error_message = 'เกิดข้อผิดพลาดในการเชื่อมต่อ: $e';
         _is_loading = false;
       });
-      debugPrint('Error fetching expiry data: $e');
     }
   }
 
@@ -179,20 +173,30 @@ class _CalendarPageState extends State<CalendarPage> {
                 ),
               ),
             )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-              child: Column(
-                children: [
-                  _build_month_filter(), // ตัวกรองอยู่ด้านบนเสมอ
-                  const SizedBox(height: 16),
-                  if (!_show_only_expiry_months)
-                    _build_year_selector(), // เลือกปีถ้าไม่ได้กรอง
-                  const SizedBox(height: 16),
+          : RefreshIndicator(
+              onRefresh: _fetch_expiry_data,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                child: Column(
+                  children: [
+                    _build_display_mode_selector(), // ตัวเลือกโหมดการแสดง
+                    const SizedBox(height: 16),
+                    if (_display_mode == 0 || _display_mode == 2)
+                      _build_year_selector(), // เลือกปีสำหรับโหมดทั้งหมดและต่อเดือน
+                    if (_display_mode == 2) ...[
+                      const SizedBox(height: 16),
+                      _build_month_selector(), // เลือกเดือนสำหรับโหมดต่อเดือน
+                    ],
+                    const SizedBox(height: 16),
 
-                  ...(_show_only_expiry_months
-                      ? _getSortedMonthsForFilter().map((pair) => _build_month_calendar(pair['month'] as int, year: pair['year'] as int)).toList()
-                      : List.generate(12, (index) => _build_month_calendar(index + 1))),
-                ],
+                    ...(_display_mode == 1
+                        ? _getSortedMonthsForFilter().map((pair) => _build_month_calendar(pair['month'] as int, year: pair['year'] as int)).toList()
+                        : _display_mode == 2
+                        ? [_build_month_calendar(_selected_month)]
+                        : List.generate(12, (index) => _build_month_calendar(index + 1))),
+                  ],
+                ),
               ),
             ),
     );
@@ -225,7 +229,7 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
           Text(
             'ปี ${_selected_year + 543}',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), // เพิ่มจาก 18 เป็น 24
           ),
           IconButton(
             icon: const Icon(Icons.arrow_right),
@@ -240,36 +244,103 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  Widget _build_month_filter() {
-    return Center(
+  Widget _build_display_mode_selector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'โหมดการแสดง',
+            style: TextStyle(
+              fontSize: 24, // เพิ่มจาก 16 เป็น 24
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF4A90E2),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildModeButton(
+                  title: 'ทั้งหมด',
+                  subtitle: '12 เดือน',
+                  isSelected: _display_mode == 0,
+                  onTap: () => setState(() => _display_mode = 0),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildModeButton(
+                  title: 'มีสิ่งของ',
+                  subtitle: 'เฉพาะเดือนที่มี',
+                  isSelected: _display_mode == 1,
+                  onTap: () => setState(() => _display_mode = 1),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildModeButton(
+                  title: 'ต่อเดือน',
+                  subtitle: 'ทีละเดือน',
+                  isSelected: _display_mode == 2,
+                  onTap: () => setState(() => _display_mode = 2),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeButton({
+    required String title,
+    required String subtitle,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          color: isSelected ? const Color(0xFF4A90E2) : Colors.grey[100],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF4A90E2) : Colors.grey[300]!,
+          ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Column(
           children: [
-            const Text(
-              'แสดงเฉพาะเดือนที่มีสินค้าหมดอายุ (ทุกปี)',
-              style: TextStyle(fontSize: 16, color: Color(0xFF4A90E2)),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 18, // เพิ่มจาก 14 เป็น 18
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : Colors.grey[700],
+              ),
+              textAlign: TextAlign.center,
             ),
-            Switch(
-              value: _show_only_expiry_months,
-              onChanged: (value) {
-                setState(() {
-                  _show_only_expiry_months = value;
-                });
-              },
-              activeColor: const Color(0xFF4A90E2),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 16, // เพิ่มจาก 12 เป็น 16
+                color: isSelected ? Colors.white.withOpacity(0.9) : Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -277,14 +348,56 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  bool _has_any_expiry_in_month(int month) {
-    for (var date_string in _all_expiry_items_by_date.keys) {
-      DateTime date = DateTime.parse(date_string);
-      if (date.month == month) {
-        return true;
-      }
-    }
-    return false;
+  Widget _build_month_selector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_left),
+            onPressed: () {
+              setState(() {
+                if (_selected_month == 1) {
+                  _selected_month = 12;
+                  _selected_year--;
+                } else {
+                  _selected_month--;
+                }
+              });
+            },
+          ),
+          Text(
+            '${_month_names[_selected_month - 1]} ${_selected_year + 543}',
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), // เพิ่มจาก 18 เป็น 24
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_right),
+            onPressed: () {
+              setState(() {
+                if (_selected_month == 12) {
+                  _selected_month = 1;
+                  _selected_year++;
+                } else {
+                  _selected_month++;
+                }
+              });
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   /// คืนค่า List ของ Map {'month': int, 'year': int} เรียงจากปีน้อยไปมาก เดือนน้อยไปมาก เฉพาะเดือนที่มีของหมดอายุ (ใช้ในโหมดกรอง)
@@ -310,7 +423,7 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Widget _build_month_calendar(int month, {int? year}) {
-    int display_year = year ?? (_show_only_expiry_months ? DateTime.now().year : _selected_year);
+    int display_year = year ?? (_display_mode == 1 ? DateTime.now().year : _selected_year);
 
     int days_in_month = DateTime(display_year, month + 1, 0).day;
     DateTime first_day_of_month = DateTime(display_year, month, 1);
@@ -319,9 +432,9 @@ class _CalendarPageState extends State<CalendarPage> {
     int offset = (start_day_of_week == 7) ? 0 : start_day_of_week;
 
     String month_title = _month_names[month - 1];
-    if (_show_only_expiry_months && year != null) {
+    if (_display_mode == 1 && year != null) {
       month_title += ' ${year + 543}';
-    } else if (!_show_only_expiry_months) {
+    } else if (_display_mode == 0 || _display_mode == 2) {
       month_title += ' ${_selected_year + 543}';
     }
 
@@ -348,13 +461,13 @@ class _CalendarPageState extends State<CalendarPage> {
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             child: Row(
               children: const [
-                Expanded(child: Center(child: Text('อา', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
-                Expanded(child: Center(child: Text('จ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
-                Expanded(child: Center(child: Text('อ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
-                Expanded(child: Center(child: Text('พ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
-                Expanded(child: Center(child: Text('พฤ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
-                Expanded(child: Center(child: Text('ศ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
-                Expanded(child: Center(child: Text('ส', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)))),
+                Expanded(child: Center(child: Text('อา', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
+                Expanded(child: Center(child: Text('จ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
+                Expanded(child: Center(child: Text('อ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
+                Expanded(child: Center(child: Text('พ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
+                Expanded(child: Center(child: Text('พฤ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
+                Expanded(child: Center(child: Text('ศ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
+                Expanded(child: Center(child: Text('ส', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)))), // เพิ่มจาก 14 เป็น 18
               ],
             ),
           ),
@@ -377,7 +490,7 @@ class _CalendarPageState extends State<CalendarPage> {
               }
               int day = index - offset + 1;
 
-              // เก็บรายการสินค้าที่หมดอายุในวันนี้ (สำหรับปีที่เลือก หรือทุกปี)
+              // เก็บรายการสิ่งของที่หมดอายุในวันนี้ (สำหรับปีที่เลือก หรือทุกปี)
               List<Map<String, dynamic>> items_on_this_day_across_all_years =
                   [];
               // ไม่ต้องเก็บ expiry_years_on_this_day สำหรับแสดงบนตัวเลขวันแล้ว
@@ -387,7 +500,7 @@ class _CalendarPageState extends State<CalendarPage> {
               for (var entry in _all_expiry_items_by_date.entries) {
                 DateTime stored_date = DateTime.parse(entry.key);
                 if (stored_date.month == month && stored_date.day == day) {
-                  if (_show_only_expiry_months) {
+                  if (_display_mode == 1) {
                     if (year != null && stored_date.year != year) continue;
                   } else {
                     if (stored_date.year != _selected_year) continue;
@@ -428,7 +541,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     child: Text(
                       '$day',
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 20, // เพิ่มจาก 16 เป็น 20
                         color: has_expiry
                             ? const Color(0xFFE91E63)
                             : Colors.black87,
@@ -456,9 +569,9 @@ class _CalendarPageState extends State<CalendarPage> {
   ) {
     // ใน Dialog ให้แสดงวันที่ของ Dialog ให้ตรงกับวันที่กด
     String dialog_date_title;
-    // หากอยู่ในโหมดรวมทุกปี (_show_only_expiry_months)
-    // หัวข้อ Dialog ไม่ควรมีปีเฉพาะเจาะจง เพราะวันที่เดียวกันอาจมีสินค้าจากหลายปี
-    if (_show_only_expiry_months) {
+    // หากอยู่ในโหมดรวมทุกปี (_display_mode == 1)
+    // หัวข้อ Dialog ไม่ควรมีปีเฉพาะเจาะจง เพราะวันที่เดียวกันอาจมีสิ่งของจากหลายปี
+    if (_display_mode == 1) {
       dialog_date_title =
           '${day} ${_month_names[month - 1]}'; // แสดงแค่วันที่และเดือน
     } else {
@@ -474,9 +587,9 @@ class _CalendarPageState extends State<CalendarPage> {
       return dateA.compareTo(dateB);
     });
 
-    // หัวข้อ Dialog: ถ้ามี BBF ให้แสดง "สินค้าควรบริโภคก่อน" ถ้าไม่มีก็ "สินค้าหมดอายุ"
+    // หัวข้อ Dialog: ถ้ามี BBF ให้แสดง "สิ่งของควรบริโภคก่อน" ถ้าไม่มีก็ "สิ่งของหมดอายุ"
     final hasBBF = items.any((item) => (item['date_type'] ?? '').toString().toUpperCase() == 'BBF');
-    final dialogTitlePrefix = hasBBF ? 'สินค้าควรบริโภคก่อน' : 'สินค้าหมดอายุ';
+    final dialogTitlePrefix = hasBBF ? 'สิ่งของควรบริโภคก่อน' : 'สิ่งของหมดอายุ';
 
     showDialog(
       context: context,
@@ -485,13 +598,13 @@ class _CalendarPageState extends State<CalendarPage> {
           '$dialogTitlePrefix\n$dialog_date_title',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 22,
+            fontSize: 24, // เพิ่มจาก 22 เป็น 24
             fontWeight: FontWeight.bold,
             color: Color(0xFF4A90E2),
           ),
         ),
         content: items.isEmpty
-            ? Text(hasBBF ? 'ไม่พบสินค้าควรบริโภคก่อนในวันนี้' : 'ไม่พบสินค้าหมดอายุในวันนี้')
+            ? Text(hasBBF ? 'ไม่พบสิ่งของควรบริโภคก่อนในวันนี้' : 'ไม่พบสิ่งของหมดอายุในวันนี้')
             : SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -506,11 +619,6 @@ class _CalendarPageState extends State<CalendarPage> {
                     return GestureDetector(
                       onTap: () async {
                         Navigator.pop(context);
-                        
-                        // Debug: ดูข้อมูลที่ได้จาก API
-                        debugPrint('Calendar item_data: $item_data');
-                        debugPrint('Calendar item_expire_details: ${item_data['item_expire_details']}');
-                        debugPrint('Calendar storage_locations: ${item_data['storage_locations']}');
                         
                         // เตรียมข้อมูลให้ครบถ้วนสำหรับ ItemDetailPage
                         Map<String, dynamic> itemDetailData = {
@@ -555,8 +663,6 @@ class _CalendarPageState extends State<CalendarPage> {
                           'used_quantity': item_data['used_quantity'] ?? 0,
                           'expired_quantity': item_data['expired_quantity'] ?? 0,
                         };
-                        
-                        debugPrint('Calendar sending to ItemDetailPage: $itemDetailData');
                         
                         final result = await Navigator.push(
                           context,
@@ -621,7 +727,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                   Text(
                                     display_item_name,
                                     style: const TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 20, // เพิ่มจาก 16 เป็น 20
                                       fontWeight: FontWeight.bold,
                                       color: Color(0xFF4A90E2),
                                     ),
@@ -631,14 +737,14 @@ class _CalendarPageState extends State<CalendarPage> {
                                   Text(
                                     'จำนวน: ${item_data['item_number'] ?? 'N/A'}',
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 16, // เพิ่มจาก 12 เป็น 16
                                       color: Colors.grey[700],
                                     ),
                                   ),
                                   Text(
                                     'หมวดหมู่: ${item_data['category'] ?? 'N/A'}',
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 16, // เพิ่มจาก 12 เป็น 16
                                       color: Colors.grey[700],
                                     ),
                                   ),
@@ -651,7 +757,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                           .toSet() // ใช้ Set เพื่อลบชื่อซ้ำ
                                           .join(', ')}',
                                       style: TextStyle(
-                                        fontSize: 12,
+                                        fontSize: 16, // เพิ่มจาก 12 เป็น 16
                                         color: Colors.grey[700],
                                       ),
                                     )
@@ -659,7 +765,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                     Text(
                                       'จัดเก็บ: ${item_data['storage_location'] ?? item_data['area_name'] ?? 'N/A'}',
                                       style: TextStyle(
-                                        fontSize: 12,
+                                        fontSize: 16, // เพิ่มจาก 12 เป็น 16
                                         color: Colors.grey[700],
                                       ),
                                     ),
@@ -681,6 +787,9 @@ class _CalendarPageState extends State<CalendarPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              textStyle: const TextStyle(fontSize: 18), // เพิ่มขนาดตัวอักษรปุ่ม
+            ),
             child: const Text('ปิด'),
           ),
         ],

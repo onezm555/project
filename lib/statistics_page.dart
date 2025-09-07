@@ -24,7 +24,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
   double _expiredChangePercent = 0.0;
   
   List<dynamic> _categoryStats = [];
-  List<dynamic> _productStats = []; // เพิ่มสำหรับสินค้าแยกตามประเภทเฉพาะ
+  List<dynamic> _productStats = []; // เพิ่มสำหรับสิ่งของแยกตามประเภทเฉพาะ
 
   @override
   void initState() {
@@ -106,14 +106,18 @@ class _StatisticsPageState extends State<StatisticsPage> {
       print('Selected month: $_selectedMonth');
 
       final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
+      // ตรวจสอบให้แน่ใจว่า baseUrl มี / ท้าย
+      final String apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+      print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
+      print('Final API Base URL: $apiBaseUrl'); // Debug เพิ่ม
       String apiUrl;
       
       if (_selectedMonth == 'all') {
         // สำหรับสถิติทั้งหมด ไม่ส่งพารามิเตอร์ month
-        apiUrl = '${baseUrl}get_statistics.php?user_id=$userId';
+        apiUrl = '${apiBaseUrl}get_statistics.php?user_id=$userId';
       } else {
         // สำหรับสถิติรายเดือน
-        apiUrl = '${baseUrl}get_statistics.php?user_id=$userId&month=$_selectedMonth';
+        apiUrl = '${apiBaseUrl}get_statistics.php?user_id=$userId&month=$_selectedMonth';
       }
       
       print('API URL: $apiUrl');
@@ -185,7 +189,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
       print('=== Testing with User ID 1 ===');
       
       final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
-      final String testUrl = '${baseUrl}get_statistics.php?user_id=1&month=$_selectedMonth';
+      final String apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+      final String testUrl = '${apiBaseUrl}get_statistics.php?user_id=1&month=$_selectedMonth';
       
       print('Test URL with User ID 1: $testUrl');
       
@@ -246,7 +251,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
       print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
       
       final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
-      final String testUrl = '${baseUrl}get_statistics.php?user_id=${userId ?? "1"}&month=$_selectedMonth';
+      final String apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+      final String testUrl = '${apiBaseUrl}get_statistics.php?user_id=${userId ?? "1"}&month=$_selectedMonth';
       
       print('Test URL: $testUrl');
       
@@ -691,10 +697,10 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       
                       const SizedBox(height: 24),
                       
-                      // Product breakdown (สินค้าแยกตามประเภทเฉพาะ)
+                      // Product breakdown (สิ่งของแยกตามประเภทเฉพาะ)
                       if (_productStats.isNotEmpty) ...[
                         const Text(
-                          'สถิติตามประเภทสินค้า',
+                          'สถิติตามประเภทสิ่งของ',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
