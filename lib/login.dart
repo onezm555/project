@@ -637,12 +637,12 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   SizedBox(height: isKeyboardOpen ? 40 : 60),
                 ],
-              ), // ปิด Column
-            ), // ปิด Form
-          ), // ปิด SingleChildScrollView  
-        ), // ปิด ConstrainedBox
-      ), // ปิด SafeArea
-    ), // ปิด Container
-    ); // ปิด Scaffold
+              ),
+            ), 
+          ), 
+        ), 
+      ), 
+    ), 
+    ); 
   }
 }

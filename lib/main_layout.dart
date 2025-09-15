@@ -216,7 +216,7 @@ class _MainLayoutState extends State<MainLayout> {
             Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 8),
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
                   _add_new_item();
@@ -225,16 +225,20 @@ class _MainLayoutState extends State<MainLayout> {
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black87,
                   elevation: 2,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.symmetric(vertical: 20),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
+                icon: const Icon(
+                  Icons.add_circle_outline,
+                  size: 28,
+                ),
+                label: const Text(
                   'เพิ่มสิ่งของใหม่',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -242,7 +246,7 @@ class _MainLayoutState extends State<MainLayout> {
             Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 16),
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
                   _add_existing_item();
@@ -251,16 +255,20 @@ class _MainLayoutState extends State<MainLayout> {
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black87,
                   elevation: 2,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.symmetric(vertical: 20),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
+                icon: const Icon(
+                  Icons.qr_code_scanner,
+                  size: 28,
+                ),
+                label: const Text(
                   'เพิ่มสิ่งของที่มีอยู่(บาร์โค้ด)',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),

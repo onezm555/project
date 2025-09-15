@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // เพิ่ม import นี้
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_switch/flutter_switch.dart';
 
 class AddItemPage extends StatefulWidget {
@@ -46,16 +46,24 @@ class _AddItemPageState extends State<AddItemPage> {
   ];
   int? _current_user_id; // สำหรับเก็บ user_id
   
-  // Variables for multiple storage locations
+  // Variables for multiple storage locations (old system)
   bool _use_multiple_locations = false;
   bool _enable_multiple_locations_option = false;
   List<Map<String, dynamic>> _item_locations = [];
   int _remaining_quantity = 0;
 
+  // Variables for individual item storage management (new system)
+  bool _allow_separate_storage = false; // ให้ผู้ใช้เลือกว่าจะแยกพื้นที่เก็บหรือไม่
+  List<Map<String, dynamic>> _item_storage_details = []; // พื้นที่เก็บแต่ละชิ้น
+  List<Map<String, dynamic>> _storage_groups = []; // กลุ่มพื้นที่เก็บ (พื้นที่ + จำนวน)
+  
+  // Cache for modified preview items (Option B approach)
+  List<Map<String, dynamic>>? _cached_preview_items;
 
   bool _use_multiple_expire_dates = false;
   bool _allow_separate_expire_dates = false; // ให้ผู้ใช้เลือกว่าจะแยกวันหมดอายุหรือไม่
   List<Map<String, dynamic>> _item_expire_details = []; // วันหมดอายุแต่ละชิ้น
+  List<Map<String, dynamic>> _expire_date_groups = []; // กลุ่มวันหมดอายุ (วันที่ + จำนวน)
 
   // ใช้ URL จาก .env
   final String _api_base_url = dotenv.env['API_BASE_URL'] ?? 'http://localhost';
@@ -68,7 +76,67 @@ class _AddItemPageState extends State<AddItemPage> {
     _notification_days_controller.text = '7';
 
     _quantity_controller.addListener(() {
+      _clear_preview_cache(); // Clear cache when quantity changes
       _check_multiple_locations_availability();
+      
+      // อัปเดตข้อมูลเมื่อจำนวนเปลี่ยน
+      if (_use_multiple_locations) {
+        _update_remaining_quantity();
+      }
+      
+      // อัปเดตกลุ่มวันหมดอายุถ้าจำเป็น
+      if (_allow_separate_expire_dates && _expire_date_groups.isNotEmpty) {
+        final newTotal = int.tryParse(_quantity_controller.text) ?? 0;
+        final currentTotal = _get_total_grouped_quantity();
+        
+        if (newTotal != currentTotal && newTotal > 0) {
+          // ปรับกลุ่มแรกให้ตรงกับจำนวนใหม่
+          if (_expire_date_groups.isNotEmpty) {
+            final difference = newTotal - currentTotal;
+            final firstGroup = _expire_date_groups[0];
+            final newFirstGroupQty = (firstGroup['quantity'] as int) + difference;
+            
+            if (newFirstGroupQty > 0) {
+              firstGroup['quantity'] = newFirstGroupQty;
+            } else {
+              // ถ้าจำนวนน้อยลง ให้ปรับทุกกลุ่ม
+              _expire_date_groups.clear();
+              _expire_date_groups.add({
+                'expire_date': _selected_date,
+                'quantity': newTotal,
+                'unit': _selected_unit,
+              });
+            }
+          }
+        }
+      }
+      
+      // อัปเดตกลุ่มพื้นที่เก็บถ้าจำเป็น
+      if (_allow_separate_storage && _storage_groups.isNotEmpty) {
+        final newTotal = int.tryParse(_quantity_controller.text) ?? 0;
+        final currentTotal = _get_total_grouped_storage_quantity();
+        
+        if (newTotal != currentTotal && newTotal > 0) {
+          // ปรับกลุ่มแรกให้ตรงกับจำนวนใหม่
+          if (_storage_groups.isNotEmpty) {
+            final difference = newTotal - currentTotal;
+            final firstGroup = _storage_groups[0];
+            final newFirstGroupQty = (firstGroup['quantity'] as int) + difference;
+            
+            if (newFirstGroupQty > 0) {
+              firstGroup['quantity'] = newFirstGroupQty;
+            } else {
+              // ถ้าจำนวนน้อยลง ให้ปรับทุกกลุ่ม
+              _storage_groups.clear();
+              _storage_groups.add({
+                'area_id': _get_selected_storage_id(),
+                'area_name': _selected_storage,
+                'quantity': newTotal,
+              });
+            }
+          }
+        }
+      }
     });
     // โหลดข้อมูลเริ่มต้นจาก item_data ถ้ามี (ทั้งโหมดแก้ไขและโหมดเพิ่มใหม่)
     if (widget.item_data != null) {
@@ -464,11 +532,13 @@ class _AddItemPageState extends State<AddItemPage> {
       _allow_separate_expire_dates = value;
       if (value) {
         _use_multiple_expire_dates = true;
+        _initialize_expire_groups(); // ใช้ระบบกลุ่มแทน
         _initialize_expire_details();
       } else {
         _use_multiple_expire_dates = false;
         // ล้างข้อมูลวันหมดอายุแต่ละชิ้น
         _item_expire_details.clear();
+        _expire_date_groups.clear();
       }
     });
   }
@@ -481,6 +551,117 @@ class _AddItemPageState extends State<AddItemPage> {
     }
   }
 
+  // จัดการกลุ่มวันหมดอายุ
+  void _initialize_expire_groups() {
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+    
+    if (_expire_date_groups.isEmpty && totalQuantity > 1) {
+      setState(() {
+        _expire_date_groups = [
+          {
+            'expire_date': _selected_date,
+            'quantity': totalQuantity,
+            'unit': _selected_unit,
+          }
+        ];
+      });
+    }
+  }
+
+  void _add_expire_group() {
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+    final currentTotal = _get_total_grouped_quantity();
+    
+    if (currentTotal >= totalQuantity) {
+      _show_error_message('ได้จัดสรรสิ่งของครบตามจำนวนแล้ว');
+      return;
+    }
+    
+    final remainingQuantity = totalQuantity - currentTotal;
+    
+    setState(() {
+      _expire_date_groups.add({
+        'expire_date': DateTime.now().add(const Duration(days: 7)),
+        'quantity': remainingQuantity > 0 ? (remainingQuantity > 1 ? 1 : remainingQuantity) : 1,
+        'unit': _selected_unit,
+      });
+    });
+  }
+
+  void _remove_expire_group(int index) {
+    if (_expire_date_groups.length > 1) {
+      setState(() {
+        _expire_date_groups.removeAt(index);
+      });
+    }
+  }
+
+  void _update_expire_group_date(int index, DateTime date) {
+    if (index < _expire_date_groups.length) {
+      setState(() {
+        _expire_date_groups[index]['expire_date'] = date;
+      });
+    }
+  }
+
+  void _update_expire_group_quantity(int index, int quantity) {
+    if (index < _expire_date_groups.length) {
+      setState(() {
+        _expire_date_groups[index]['quantity'] = quantity;
+        // อัปเดตการแสดงผลเพื่อให้เห็นการเปลี่ยนแปลงช่วงชิ้น
+      });
+    }
+  }
+
+  void _update_expire_group_unit(int index, String unit) {
+    if (index < _expire_date_groups.length) {
+      setState(() {
+        // ตรวจสอบว่าถ้าเปลี่ยนเป็น BBF ให้เปลี่ยนทั้งหมดเป็น BBF 
+        // เนื่องจากฐานข้อมูลรองรับเฉพาะประเภทเดียว
+        if (unit == 'ควรบริโภคก่อน(BBF)') {
+          // เปลี่ยนทุกกลุ่มเป็น BBF
+          for (int i = 0; i < _expire_date_groups.length; i++) {
+            _expire_date_groups[i]['unit'] = unit;
+          }
+          // เปลี่ยน selected_unit หลักด้วย
+          _selected_unit = unit;
+        } else if (unit == 'วันหมดอายุ(EXP)') {
+          // ถ้าเปลี่ยนเป็น EXP ให้เปลี่ยนทุกกลุ่มเป็น EXP
+          for (int i = 0; i < _expire_date_groups.length; i++) {
+            _expire_date_groups[i]['unit'] = unit;
+          }
+          // เปลี่ยน selected_unit หลักด้วย
+          _selected_unit = unit;
+        }
+      });
+    }
+  }
+
+  int _get_total_grouped_quantity() {
+    return _expire_date_groups.fold<int>(
+      0, 
+      (sum, group) => sum + (group['quantity'] as int? ?? 0)
+    );
+  }
+
+  // ฟังก์ชันใหม่: รีเซ็ตจำนวนในกลุ่มให้เท่ากันทั้งหมด
+  void _distribute_equally() {
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+    final groupCount = _expire_date_groups.length;
+    
+    if (groupCount > 0 && totalQuantity > 0) {
+      setState(() {
+        final baseQuantity = totalQuantity ~/ groupCount;
+        final remainder = totalQuantity % groupCount;
+        
+        for (int i = 0; i < _expire_date_groups.length; i++) {
+          // กลุ่มแรกๆ จะได้เศษจำนวนที่เหลือ
+          _expire_date_groups[i]['quantity'] = baseQuantity + (i < remainder ? 1 : 0);
+        }
+      });
+    }
+  }
+
   void _update_remaining_quantity() {
     final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
     final distributedQuantity = _item_locations.fold<int>(
@@ -488,77 +669,75 @@ class _AddItemPageState extends State<AddItemPage> {
       (sum, location) => sum + (location['quantity'] as int? ?? 0)
     );
     
-    // คำนวณจำนวนที่เหลือสำหรับการกระจายเพิ่มเติม
-    // ในพื้นที่หลักจะมีจำนวน = totalQuantity - distributedQuantity (ต้องมีอย่างน้อย 1)
+    // คำนวณจำนวนในพื้นที่หลัก
     final mainLocationQuantity = totalQuantity - distributedQuantity;
     
     setState(() {
-      // remaining quantity สำหรับการกระจายเพิ่มเติม
-      if (mainLocationQuantity > 1) {
-        // ถ้าในพื้นที่หลักมีมากกว่า 1 ชิ้น สามารถกระจายเพิ่มได้
-        _remaining_quantity = mainLocationQuantity - 1; // เก็บ 1 ชิ้นไว้ในพื้นที่หลัก
+      // ตรวจสอบว่าการกระจายไม่เกินจำนวนทั้งหมด
+      if (distributedQuantity > totalQuantity) {
+        // ถ้ากระจายเกิน ให้ปรับลดจำนวนใน locations จากท้ายไปหน้า
+        int excessQuantity = distributedQuantity - totalQuantity;
+        
+        for (int i = _item_locations.length - 1; i >= 0 && excessQuantity > 0; i--) {
+          final location = _item_locations[i];
+          final currentQty = location['quantity'] as int;
+          final reduction = (excessQuantity >= currentQty) ? currentQty - 1 : excessQuantity;
+          
+          if (reduction > 0) {
+            location['quantity'] = currentQty - reduction;
+            excessQuantity -= reduction;
+            
+            // ถ้าจำนวนเหลือ 0 ให้ลบ location นั้นออก
+            if (location['quantity'] <= 0) {
+              _item_locations.removeAt(i);
+            }
+          }
+        }
+        
+        // คำนวณใหม่หลังจากปรับ
+        final newDistributedQuantity = _item_locations.fold<int>(
+          0, 
+          (sum, location) => sum + (location['quantity'] as int? ?? 0)
+        );
+        final newMainQuantity = totalQuantity - newDistributedQuantity;
+        _remaining_quantity = newMainQuantity.clamp(0, totalQuantity);
       } else {
-        _remaining_quantity = 0;
+        // การกระจายปกติ
+        _remaining_quantity = mainLocationQuantity.clamp(0, totalQuantity);
       }
       
-      // ตรวจสอบว่าไม่ได้กระจายเกินจำนวนที่มี
-      if (mainLocationQuantity < 1) {
-        // ถ้ากระจายเกิน ให้ปรับลดจำนวนใน location สุดท้าย
-        final excess = 1 - mainLocationQuantity;
-        if (_item_locations.isNotEmpty) {
-          final lastLocation = _item_locations.last;
-          final currentQty = lastLocation['quantity'] as int;
-          final newQty = (currentQty - excess).clamp(1, currentQty);
-          lastLocation['quantity'] = newQty;
-          
-          // คำนวณใหม่หลังจากปรับ
-          final newDistributedQuantity = _item_locations.fold<int>(
-            0, 
-            (sum, location) => sum + (location['quantity'] as int? ?? 0)
-          );
-          final newMainQuantity = totalQuantity - newDistributedQuantity;
-          _remaining_quantity = (newMainQuantity - 1).clamp(0, totalQuantity);
+      // ตรวจสอบว่าพื้นที่หลักต้องมีอย่างน้อย 1 ชิ้น (เมื่อมี multiple locations)
+      if (_use_multiple_locations && _item_locations.isNotEmpty) {
+        final finalMainQuantity = totalQuantity - _item_locations.fold<int>(
+          0, 
+          (sum, location) => sum + (location['quantity'] as int? ?? 0)
+        );
+        
+        if (finalMainQuantity < 1) {
+          // ย้ายจำนวน 1 ชิ้นจาก location สุดท้ายกลับไปยังพื้นที่หลัก
+          if (_item_locations.isNotEmpty) {
+            final lastLocation = _item_locations.last;
+            final lastQty = lastLocation['quantity'] as int;
+            
+            if (lastQty > 1) {
+              lastLocation['quantity'] = lastQty - 1;
+            } else {
+              _item_locations.removeLast();
+            }
+            
+            // คำนวณ remaining quantity ใหม่
+            final adjustedDistributed = _item_locations.fold<int>(
+              0, 
+              (sum, location) => sum + (location['quantity'] as int? ?? 0)
+            );
+            _remaining_quantity = (totalQuantity - adjustedDistributed).clamp(0, totalQuantity);
+          }
         }
       }
     });
   }
 
-  void _toggle_multiple_locations(bool value) {
-    setState(() {
-      _use_multiple_locations = value;
-      if (value) {
-        // เมื่อเปิดใช้ multiple locations ให้เริ่มต้นด้วยพื้นที่หลัก 1 ชิ้น
-        final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
-        if (totalQuantity > 1) {
-          // ค้นหาพื้นที่จัดเก็บที่ใช้ได้และไม่ใช่พื้นที่หลัก
-          final availableLocations = _storage_locations
-              .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                             loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
-                             loc['area_name'] != _selected_storage)
-              .toList();
-          
-          String defaultArea = '';
-          int? defaultAreaId;
-          
-          if (availableLocations.isNotEmpty) {
-            defaultArea = availableLocations.first['area_name'];
-            defaultAreaId = availableLocations.first['area_id'];
-          }
-          
-          // เพิ่มพื้นที่กระจายแรกทันทีด้วยจำนวนที่เหลือ
-          _item_locations.add({
-            'area_id': defaultAreaId,
-            'area_name': defaultArea,
-            'quantity': totalQuantity - 1,
-          });
-        }
-        _update_remaining_quantity();
-      } else {
-        _item_locations.clear();
-        _remaining_quantity = 0;
-      }
-    });
-  }
+
 
   void _add_storage_location() {
     if (_remaining_quantity <= 0) {
@@ -626,8 +805,20 @@ class _AddItemPageState extends State<AddItemPage> {
   }
 
   void _update_location_quantity(int index, int quantity) {
+    if (index < 0 || index >= _item_locations.length) return;
+    
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+    final currentDistributed = _item_locations.fold<int>(
+      0, 
+      (sum, location) => sum + (location['quantity'] as int? ?? 0)
+    ) - (_item_locations[index]['quantity'] as int); // ลบจำนวนของ index ที่จะแก้ไข
+    
+    // ตรวจสอบว่าจำนวนใหม่ไม่เกินจำนวนที่เหลือ
+    final maxAllowed = totalQuantity - currentDistributed - 1; // เก็บ 1 ชิ้นไว้ในพื้นที่หลัก
+    final validQuantity = quantity.clamp(1, maxAllowed > 0 ? maxAllowed : 1);
+    
     setState(() {
-      _item_locations[index]['quantity'] = quantity;
+      _item_locations[index]['quantity'] = validQuantity;
       _update_remaining_quantity();
     });
   }
@@ -637,6 +828,337 @@ class _AddItemPageState extends State<AddItemPage> {
       _item_locations[index]['area_name'] = areaName;
       _item_locations[index]['area_id'] = areaId;
     });
+  }
+
+  // ============ Storage Groups Management Functions ============
+  
+  // Toggle individual storage management
+  void _toggle_individual_storage(bool value) {
+    setState(() {
+      _allow_separate_storage = value;
+      
+      if (value) {
+        // เปิดใช้งาน - เตรียมข้อมูลเริ่มต้น
+        final totalQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+        
+        if (_storage_groups.isEmpty) {
+          // สร้างกลุ่มเริ่มต้น
+          _storage_groups.add({
+            'area_id': _get_selected_storage_id(),
+            'area_name': _selected_storage,
+            'quantity': totalQuantity,
+          });
+        }
+      } else {
+        // ปิดใช้งาน - ใช้พื้นที่เดียวสำหรับทั้งหมด
+        _storage_groups.clear();
+        _item_storage_details.clear();
+      }
+    });
+  }
+
+  // Get storage id from selected storage name
+  int? _get_selected_storage_id() {
+    for (var location in _storage_locations) {
+      if (location['area_name'] == _selected_storage) {
+        return location['area_id'];
+      }
+    }
+    return null;
+  }
+
+  // Add new storage group
+  void _add_storage_group() {
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+    final usedQuantity = _get_total_grouped_storage_quantity();
+    
+    if (usedQuantity >= totalQuantity) {
+      _show_error_message('ได้จัดสรรสิ่งของครบตามจำนวนแล้ว');
+      return;
+    }
+    
+    // Clear preview cache when adding storage group
+    _clear_preview_cache();
+
+    // หาพื้นที่ที่มีให้เลือก (อนุญาตให้ใช้พื้นที่เดียวกันได้)
+    final availableAreas = _storage_locations
+        .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                       loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+        .toList();
+
+    if (availableAreas.isEmpty) {
+      _show_error_message('ไม่มีพื้นที่จัดเก็บให้เลือก');
+      return;
+    }
+
+    // ให้ผู้ใช้เลือกพื้นที่เอง โดยเริ่มต้นด้วย "เลือกพื้นที่จัดเก็บ"
+    final remainingQuantity = totalQuantity - usedQuantity;
+    
+    setState(() {
+      _storage_groups.add({
+        'area_id': null,
+        'area_name': 'เลือกพื้นที่จัดเก็บ',
+        'quantity': remainingQuantity > 0 ? 1 : 0,
+      });
+    });
+  }
+
+  // Remove storage group
+  void _remove_storage_group(int index) {
+    if (index < 0 || index >= _storage_groups.length) return;
+    
+    // ป้องกันไม่ให้ลบกลุ่มสุดท้าย
+    if (_storage_groups.length <= 1) {
+      _show_error_message('ต้องมีพื้นที่จัดเก็บอย่างน้อย 1 แห่ง');
+      return;
+    }
+
+    setState(() {
+      // Clear preview cache when removing storage group
+      _clear_preview_cache();
+      final removedGroup = _storage_groups.removeAt(index);
+      final removedQuantity = removedGroup['quantity'] as int;
+      
+      // เพิ่มจำนวนที่ลบให้กับกลุ่มแรก
+      if (_storage_groups.isNotEmpty && removedQuantity > 0) {
+        _storage_groups[0]['quantity'] = (_storage_groups[0]['quantity'] as int) + removedQuantity;
+      }
+    });
+  }
+
+  // Update storage group quantity
+  void _update_storage_group_quantity(int index, int newQuantity) {
+    if (index < 0 || index >= _storage_groups.length) return;
+    
+    // Clear preview cache when updating quantity
+    _clear_preview_cache();
+
+    final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+    final otherGroupsTotal = _storage_groups
+        .asMap()
+        .entries
+        .where((entry) => entry.key != index)
+        .fold<int>(0, (sum, entry) => sum + (entry.value['quantity'] as int));
+
+    // ตรวจสอบว่าจำนวนใหม่ไม่เกินจำนวนทั้งหมด
+    final maxAllowed = totalQuantity - otherGroupsTotal;
+    final validQuantity = newQuantity.clamp(0, maxAllowed);
+
+    setState(() {
+      _storage_groups[index]['quantity'] = validQuantity;
+    });
+  }
+
+  // Update storage group area
+  void _update_storage_group_area(int index, String areaName, int? areaId) {
+    if (index < 0 || index >= _storage_groups.length) return;
+    
+    // Clear preview cache when updating area
+    _clear_preview_cache();
+
+    setState(() {
+      _storage_groups[index]['area_name'] = areaName;
+      _storage_groups[index]['area_id'] = areaId;
+    });
+  }
+
+  // Get total quantity in storage groups
+  int _get_total_grouped_storage_quantity() {
+    return _storage_groups.fold<int>(0, (sum, group) => sum + (group['quantity'] as int));
+  }
+
+
+
+  // Generate storage groups data from current preview state
+  List<Map<String, dynamic>> _generate_storage_groups_from_preview() {
+    final previewItems = _generate_storage_preview();
+    Map<String, Map<String, dynamic>> groupedByArea = {};
+    
+    for (var item in previewItems) {
+      String areaName = item['area_name'];
+      int? areaId = item['area_id'];
+      
+      if (!groupedByArea.containsKey(areaName)) {
+        groupedByArea[areaName] = {
+          'area_id': areaId,
+          'area_name': areaName,
+          'quantity': 0,
+          'details': []
+        };
+      }
+      
+      groupedByArea[areaName]!['quantity'] = (groupedByArea[areaName]!['quantity'] as int) + 1;
+      groupedByArea[areaName]!['details'].add({
+        'expire_date': (item['expire_date'] as DateTime).toIso8601String().split('T')[0],
+        'barcode': _barcode_controller.text,
+        'item_img': null,
+        'quantity': 1,
+        'notification_days': _notification_days_controller.text,
+        'status': 'active'
+      });
+    }
+    
+    return groupedByArea.values.toList();
+  }
+
+  // Clear cached preview items when data changes
+  void _clear_preview_cache() {
+    _cached_preview_items = null;
+  }
+
+  // Generate preview of items distribution with expire dates
+  List<Map<String, dynamic>> _generate_storage_preview() {
+    // Return cached version if available and no manual changes
+    if (_cached_preview_items != null) {
+      return _cached_preview_items!;
+    }
+    
+    List<Map<String, dynamic>> itemList = [];
+    
+    if (_allow_separate_storage && _storage_groups.isNotEmpty) {
+      // ระบบ Storage Groups
+      if (_allow_separate_expire_dates && _expire_date_groups.isNotEmpty) {
+        // ใช้ระบบกลุ่มวันหมดอายุ - กระจายตามลำดับที่ตั้งไว้
+        int globalItemIndex = 0; // ดัชนีสิ่งของทั้งหมด
+        
+        for (var group in _storage_groups) {
+          final areaName = group['area_name']?.toString() ?? 'ไม่ระบุ';
+          final areaId = group['area_id'];
+          final quantity = group['quantity'] as int? ?? 0;
+          
+          // เพิ่มสิ่งของในกลุ่มพื้นที่นี้
+          for (int i = 0; i < quantity; i++) {
+            // หาว่าสิ่งของชิ้นนี้ควรได้วันหมดอายุจากกลุ่มไหน
+            int currentExpireGroup = 0;
+            int itemsInPreviousGroups = 0;
+            
+            for (int expIndex = 0; expIndex < _expire_date_groups.length; expIndex++) {
+              final groupQuantity = _expire_date_groups[expIndex]['quantity'] as int;
+              
+              if (globalItemIndex < itemsInPreviousGroups + groupQuantity) {
+                currentExpireGroup = expIndex;
+                break;
+              }
+              itemsInPreviousGroups += groupQuantity;
+            }
+            
+            // ป้องกันการเกินขอบเขต
+            if (currentExpireGroup >= _expire_date_groups.length) {
+              currentExpireGroup = _expire_date_groups.length - 1;
+            }
+            
+            final expireGroup = _expire_date_groups[currentExpireGroup];
+            final expireDate = expireGroup['expire_date'] as DateTime;
+            final unit = expireGroup['unit'] as String? ?? _selected_unit;
+            
+            itemList.add({
+              'index': itemList.length + 1,
+              'area_name': areaName,
+              'area_id': areaId,
+              'expire_date': expireDate,
+              'unit': unit,
+              'from_group': true,
+            });
+            
+            globalItemIndex++;
+          }
+        }
+      } else {
+        // ใช้วันหมดอายุเดียวกันทั้งหมด
+        for (var group in _storage_groups) {
+          final areaName = group['area_name']?.toString() ?? 'ไม่ระบุ';
+          final areaId = group['area_id'];
+          final quantity = group['quantity'] as int? ?? 0;
+          
+          for (int i = 0; i < quantity; i++) {
+            itemList.add({
+              'index': itemList.length + 1,
+              'area_name': areaName,
+              'area_id': areaId,
+              'expire_date': _selected_date,
+              'unit': _selected_unit,
+              'from_group': true,
+            });
+          }
+        }
+      }
+    } else if (_use_multiple_locations && _item_locations.isNotEmpty) {
+      // ระบบ Multiple Locations เดิม
+      // เพิ่มพื้นที่หลักก่อน
+      final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+      final distributedQuantity = _item_locations.fold<int>(0, (sum, loc) => sum + (loc['quantity'] as int? ?? 0));
+      final mainQuantity = totalQuantity - distributedQuantity;
+      
+      for (int i = 0; i < mainQuantity; i++) {
+        itemList.add({
+          'index': itemList.length + 1,
+          'area_name': _selected_storage,
+          'area_id': _get_selected_storage_id(),
+          'expire_date': _selected_date,
+          'unit': _selected_unit,
+          'from_group': false,
+          'is_main': true,
+        });
+      }
+      
+      // เพิ่มพื้นที่เพิ่มเติม
+      for (var location in _item_locations) {
+        final quantity = location['quantity'] as int? ?? 0;
+        for (int i = 0; i < quantity; i++) {
+          itemList.add({
+            'index': itemList.length + 1,
+            'area_name': location['area_name'],
+            'area_id': location['area_id'],
+            'expire_date': _selected_date,
+            'unit': _selected_unit,
+            'from_group': false,
+            'is_main': false,
+          });
+        }
+      }
+    } else {
+      // ระบบเดียวปกติ
+      final totalQuantity = int.tryParse(_quantity_controller.text) ?? 1;
+      
+      if (_allow_separate_expire_dates && _expire_date_groups.isNotEmpty) {
+        // ใช้ระบบกลุ่มวันหมดอายุ
+        for (var expireGroup in _expire_date_groups) {
+          final expireGroupQuantity = expireGroup['quantity'] as int;
+          final expireDate = expireGroup['expire_date'] as DateTime;
+          final unit = expireGroup['unit'] as String? ?? _selected_unit;
+          
+          for (int i = 0; i < expireGroupQuantity; i++) {
+            itemList.add({
+              'index': itemList.length + 1,
+              'area_name': _selected_storage,
+              'area_id': _get_selected_storage_id(),
+              'expire_date': expireDate,
+              'unit': unit,
+              'from_group': false,
+            });
+          }
+        }
+      } else {
+        // ใช้วันหมดอายุเดียวกัน
+        for (int i = 0; i < totalQuantity; i++) {
+          itemList.add({
+            'index': itemList.length + 1,
+            'area_name': _selected_storage,
+            'area_id': _get_selected_storage_id(),
+            'expire_date': _selected_date,
+            'unit': _selected_unit,
+            'from_group': false,
+          });
+        }
+      }
+    }
+    
+    // Cache the generated items for Option B approach
+    _cached_preview_items = List<Map<String, dynamic>>.from(
+      itemList.map((item) => Map<String, dynamic>.from(item))
+    );
+    
+    return _cached_preview_items!;
   }
 
   Future<void> _show_main_storage_selection_dialog() async {
@@ -898,7 +1420,7 @@ class _AddItemPageState extends State<AddItemPage> {
             setState(() {
               _is_loading = false;
             });
-            _show_error_message('Error: ${checkData['message']}');
+            _show_error_message(checkData['message'] ?? 'เกิดข้อผิดพลาดในการตรวจสอบสถานะพื้นที่');
             return;
           }
           
@@ -951,10 +1473,12 @@ class _AddItemPageState extends State<AddItemPage> {
         }),
       );
 
+      final response_body = utf8.decode(response.bodyBytes);
+      
       if (response.statusCode == 200) {
-        final response_data = json.decode(utf8.decode(response.bodyBytes));
+        final response_data = json.decode(response_body);
         if (response_data['status'] == 'success') {
-          _show_success_message('ลบพื้นที่จัดเก็บสำเร็จแล้ว!');
+          _show_success_message(response_data['message'] ?? 'ลบพื้นที่จัดเก็บสำเร็จแล้ว!');
           await _fetch_storage_locations();
           if (_selected_storage == area_name) {
             setState(() {
@@ -962,11 +1486,15 @@ class _AddItemPageState extends State<AddItemPage> {
             });
           }
         } else {
-          _show_error_message('Error: ${response_data['message']}');
+          _show_error_message(response_data['message'] ?? 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ');
         }
       } else {
-        final error_body_decoded = utf8.decode(response.bodyBytes);
-        _show_error_message('Server error: ${response.statusCode} - $error_body_decoded');
+        try {
+          final error_data = json.decode(response_body);
+          _show_error_message(error_data['message'] ?? 'เกิดข้อผิดพลาดจากเซิร์ฟเวอร์');
+        } catch (e) {
+          _show_error_message('Server error: ${response.statusCode}');
+        }
       }
     } catch (e) {
       _show_error_message('เกิดข้อผิดพลาดในการลบพื้นที่จัดเก็บ: $e');
@@ -995,8 +1523,56 @@ class _AddItemPageState extends State<AddItemPage> {
           }
         }
       }
+
+      // ตรวจสอบกลุ่มวันหมดอายุ (ในโหมดเพิ่มใหม่)
+      if (!widget.is_existing_item && _allow_separate_expire_dates && _expire_date_groups.isNotEmpty) {
+        final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+        final totalGrouped = _get_total_grouped_quantity();
+        
+        if (totalGrouped != totalQuantity) {
+          _show_error_message('จำนวนในกลุ่มวันหมดอายุไม่ตรงกับจำนวนทั้งหมด (รวม: $totalGrouped/$totalQuantity ชิ้น)');
+          return false;
+        }
+
+        for (int i = 0; i < _expire_date_groups.length; i++) {
+          final group = _expire_date_groups[i];
+          if (group['expire_date'] == null) {
+            _show_error_message('กรุณากรอกวันหมดอายุของกลุ่มที่ ${i + 1}');
+            return false;
+          }
+          if ((group['quantity'] as int) <= 0) {
+            _show_error_message('จำนวนในกลุ่มที่ ${i + 1} ต้องมากกว่า 0');
+            return false;
+          }
+        }
+      }
+
+      // ตรวจสอบกลุ่มพื้นที่เก็บ (ในโหมดเพิ่มใหม่)
+      if (!widget.is_existing_item && _allow_separate_storage && _storage_groups.isNotEmpty) {
+        final totalQuantity = int.tryParse(_quantity_controller.text) ?? 0;
+        final totalStorageGrouped = _get_total_grouped_storage_quantity();
+        
+        if (totalStorageGrouped != totalQuantity) {
+          _show_error_message('จำนวนในกลุ่มพื้นที่เก็บไม่ตรงกับจำนวนทั้งหมด (รวม: $totalStorageGrouped/$totalQuantity ชิ้น)');
+          return false;
+        }
+
+        for (int i = 0; i < _storage_groups.length; i++) {
+          final group = _storage_groups[i];
+          if (group['area_name'] == null || 
+              group['area_name'].toString().isEmpty ||
+              group['area_name'] == 'เลือกพื้นที่จัดเก็บ') {
+            _show_error_message('กรุณาเลือกพื้นที่จัดเก็บของกลุ่มที่ ${i + 1}');
+            return false;
+          }
+          if ((group['quantity'] as int) <= 0) {
+            _show_error_message('จำนวนในกลุ่มที่ ${i + 1} ต้องมากกว่า 0');
+            return false;
+          }
+        }
+      }
       
-      if (_use_multiple_locations && _enable_multiple_locations_option) {
+      if (_use_multiple_locations && _enable_multiple_locations_option && !_allow_separate_storage) {
         // ตรวจสอบว่าเลือกพื้นที่หลักแล้วหรือไม่
         if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
           _show_error_message('กรุณาเลือกพื้นที่จัดเก็บหลักก่อน');
@@ -1025,8 +1601,8 @@ class _AddItemPageState extends State<AddItemPage> {
           }
         }
         
-      } else {
-        // Validate single location (ไม่ใช้ multiple locations หรือมีสิ่งของน้อยกว่า 2 ชิ้น)
+      } else if (!_allow_separate_storage) {
+        // Validate single location (ไม่ใช้ระบบกลุ่มหรือ multiple locations)
         if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
           _show_error_message('กรุณาเลือกพื้นที่จัดเก็บ');
           return false;
@@ -1124,8 +1700,25 @@ class _AddItemPageState extends State<AddItemPage> {
       request.fields['category'] = _selected_category;
       request.fields['date_type'] = _selected_unit;
 
-      // Handle multiple locations or single location
-      if (_use_multiple_locations && _enable_multiple_locations_option && _item_locations.isNotEmpty) {
+      // Handle storage groups (new system) - individual item storage management
+      if (_allow_separate_storage && _storage_groups.isNotEmpty && !widget.is_existing_item) {
+        request.fields['use_storage_groups'] = 'true';
+        
+        // ใช้ข้อมูลจาก preview ที่อัปเดตแล้วเพื่อความถูกต้อง
+        final storageGroupsWithDetails = _generate_storage_groups_from_preview();
+        
+        request.fields['storage_groups'] = json.encode(storageGroupsWithDetails);
+        
+        // ใช้กลุ่มแรกเป็นพื้นที่หลักสำหรับ backward compatibility
+        if (_storage_groups.isNotEmpty) {
+          request.fields['storage_location'] = _storage_groups[0]['area_name'];
+          if (_storage_groups[0]['area_id'] != null) {
+            request.fields['storage_id'] = _storage_groups[0]['area_id'].toString();
+          }
+        }
+      } 
+      // Handle multiple locations or single location (old system)
+      else if (_use_multiple_locations && _enable_multiple_locations_option && _item_locations.isNotEmpty) {
         // Send multiple locations data with expire details
         request.fields['use_multiple_locations'] = 'true';
         
@@ -1160,16 +1753,52 @@ class _AddItemPageState extends State<AddItemPage> {
           };
           
           // เพิ่มข้อมูลวันหมดอายุสำหรับพื้นที่หลัก
-          for (int i = 0; i < mainLocationQuantity && i < _item_expire_details.length; i++) {
-            final detail = _item_expire_details[i];
-            mainLocationData['details'].add({
-              'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
-              'barcode': detail['barcode'] ?? _barcode_controller.text,
-              'item_img': detail['item_img'],
-              'quantity': 1,
-              'notification_days': _notification_days_controller.text,
-              'status': 'active'
-            });
+          if (_allow_separate_expire_dates && _expire_date_groups.isNotEmpty && !widget.is_existing_item) {
+            // ใช้ระบบกลุ่มวันหมดอายุใหม่
+            int itemsAdded = 0;
+            for (var group in _expire_date_groups) {
+              final groupQuantity = group['quantity'] as int;
+              final groupDate = group['expire_date'] as DateTime;
+              
+              for (int i = 0; i < groupQuantity && itemsAdded < mainLocationQuantity; i++) {
+                mainLocationData['details'].add({
+                  'expire_date': groupDate.toIso8601String().split('T')[0],
+                  'barcode': _barcode_controller.text,
+                  'item_img': null,
+                  'quantity': 1,
+                  'notification_days': _notification_days_controller.text,
+                  'status': 'active'
+                });
+                itemsAdded++;
+              }
+              
+              if (itemsAdded >= mainLocationQuantity) break;
+            }
+          } else if (_item_expire_details.isNotEmpty) {
+            // โหมดแก้ไขหรือระบบเดิม
+            for (int i = 0; i < mainLocationQuantity && i < _item_expire_details.length; i++) {
+              final detail = _item_expire_details[i];
+              mainLocationData['details'].add({
+                'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
+                'barcode': detail['barcode'] ?? _barcode_controller.text,
+                'item_img': detail['item_img'],
+                'quantity': 1,
+                'notification_days': _notification_days_controller.text,
+                'status': 'active'
+              });
+            }
+          } else {
+            // กรณีไม่มีการแยกวันหมดอายุ ใช้วันเดียวกันทั้งหมด
+            for (int i = 0; i < mainLocationQuantity; i++) {
+              mainLocationData['details'].add({
+                'expire_date': _selected_date.toIso8601String().split('T')[0],
+                'barcode': _barcode_controller.text,
+                'item_img': null,
+                'quantity': 1,
+                'notification_days': _notification_days_controller.text,
+                'status': 'active'
+              });
+            }
           }
           
           locationsWithDetails.add(mainLocationData);
@@ -1186,24 +1815,82 @@ class _AddItemPageState extends State<AddItemPage> {
           
           // กระจายวันหมดอายุตามจำนวนในแต่ละพื้นที่
           int locationQuantity = location['quantity'] ?? 0;
-          int currentDetailIndex = 0;
           
-          // หาจำนวนสิ่งของที่ถูกใช้ไปแล้วในพื้นที่ก่อนหน้า
-          for (int j = 0; j < locationsWithDetails.length; j++) {
-            currentDetailIndex += (locationsWithDetails[j]['details'] as List).length;
+          if (_allow_separate_expire_dates && _expire_date_groups.isNotEmpty && !widget.is_existing_item) {
+            // ใช้ระบบกลุ่มวันหมดอายุใหม่
+            // คำนวณจำนวนที่ใช้ไปแล้วในพื้นที่ก่อนหน้า
+            int usedItems = 0;
+            for (int j = 0; j < locationsWithDetails.length; j++) {
+              usedItems += (locationsWithDetails[j]['details'] as List).length;
+            }
+            
+            int itemsAdded = 0;
+            for (var group in _expire_date_groups) {
+              final groupQuantity = group['quantity'] as int;
+              final groupDate = group['expire_date'] as DateTime;
+              
+              // ข้ามไปถึงกลุ่มที่ยังไม่ได้ใช้
+              int groupUsed = 0;
+              int currentTotal = 0;
+              for (var prevGroup in _expire_date_groups) {
+                if (prevGroup == group) break;
+                currentTotal += prevGroup['quantity'] as int;
+              }
+              
+              if (currentTotal < usedItems) {
+                groupUsed = usedItems - currentTotal;
+                if (groupUsed >= groupQuantity) continue;
+              }
+              
+              for (int i = groupUsed; i < groupQuantity && itemsAdded < locationQuantity; i++) {
+                locationData['details'].add({
+                  'expire_date': groupDate.toIso8601String().split('T')[0],
+                  'barcode': _barcode_controller.text,
+                  'item_img': null,
+                  'quantity': 1,
+                  'notification_days': _notification_days_controller.text,
+                  'status': 'active'
+                });
+                itemsAdded++;
+              }
+              
+              if (itemsAdded >= locationQuantity) break;
+            }
+          } else if (_item_expire_details.isNotEmpty) {
+            // โหมดแก้ไขหรือระบบเดิม
+            int currentDetailIndex = 0;
+            
+            // หาจำนวนสิ่งของที่ถูกใช้ไปแล้วในพื้นที่ก่อนหน้า
+            for (int j = 0; j < locationsWithDetails.length; j++) {
+              currentDetailIndex += (locationsWithDetails[j]['details'] as List).length;
+            }
+            
+            for (int i = 0; i < locationQuantity && currentDetailIndex < _item_expire_details.length; i++) {
+              final detail = _item_expire_details[currentDetailIndex];
+              locationData['details'].add({
+                'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
+                'barcode': detail['barcode'] ?? _barcode_controller.text,
+                'item_img': detail['item_img'],
+                'quantity': 1,
+                'notification_days': _notification_days_controller.text,
+                'status': 'active'
+              });
+              currentDetailIndex++;
+            }
+          } else {
+            // กรณีไม่มีการแยกวันหมดอายุ ใช้วันเดียวกันทั้งหมด
+            for (int i = 0; i < locationQuantity; i++) {
+              locationData['details'].add({
+                'expire_date': _selected_date.toIso8601String().split('T')[0],
+                'barcode': _barcode_controller.text,
+                'item_img': null,
+                'quantity': 1,
+                'notification_days': _notification_days_controller.text,
+                'status': 'active'
+              });
+            }
           }
-          for (int i = 0; i < locationQuantity && currentDetailIndex < _item_expire_details.length; i++) {
-            final detail = _item_expire_details[currentDetailIndex];
-            locationData['details'].add({
-              'expire_date': (detail['expire_date'] as DateTime).toIso8601String().split('T')[0],
-              'barcode': detail['barcode'] ?? _barcode_controller.text,
-              'item_img': detail['item_img'],
-              'quantity': 1,
-              'notification_days': _notification_days_controller.text,
-              'status': 'active'
-            });
-            currentDetailIndex++;
-          }     
+          
           locationsWithDetails.add(locationData);
         }
         
@@ -1231,7 +1918,38 @@ class _AddItemPageState extends State<AddItemPage> {
         }
         
         // ส่งข้อมูลวันหมดอายุแต่ละชิ้นสำหรับ single location
-        if (_use_multiple_expire_dates && _item_expire_details.isNotEmpty && _allow_separate_expire_dates) {
+        if (_use_multiple_expire_dates && _allow_separate_expire_dates && !widget.is_existing_item) {
+          // ใช้ระบบกลุ่มวันหมดอายุใหม่
+          if (_expire_date_groups.isNotEmpty) {
+            List<Map<String, dynamic>> expireDetails = [];
+            
+            // แปลงข้อมูลกลุ่มเป็นรายละเอียดแต่ละชิ้น
+            for (var group in _expire_date_groups) {
+              final groupQuantity = group['quantity'] as int;
+              final groupDate = group['expire_date'] as DateTime;
+              
+              for (int i = 0; i < groupQuantity; i++) {
+                expireDetails.add({
+                  'expire_date': groupDate.toIso8601String().split('T')[0],
+                  'barcode': _barcode_controller.text,
+                  'item_img': null,
+                  'quantity': 1,
+                  'notification_days': _notification_days_controller.text,
+                  'status': 'active'
+                });
+              }
+            }
+            
+            request.fields['item_locations'] = json.encode([{
+              'area_id': areaId,
+              'area_name': _selected_storage,
+              'quantity': expireDetails.length,
+              'details': expireDetails
+            }]);
+            request.fields['use_multiple_locations'] = 'true';
+          }
+        } else if (_use_multiple_expire_dates && _item_expire_details.isNotEmpty && _allow_separate_expire_dates) {
+          // โหมดแก้ไข - ใช้ข้อมูลเดิม
           List<Map<String, dynamic>> expireDetails = [];
           for (var detail in _item_expire_details) {
             expireDetails.add({
@@ -1584,19 +2302,30 @@ class _AddItemPageState extends State<AddItemPage> {
                                   Icon(Icons.event_note, color: Colors.green[600], size: 20),
                                   const SizedBox(width: 8),
                                   Expanded(
-                                  child: Text(
-                                    'การตั้งค่าวันหมดอายุ',
-                                    style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.green[800],
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'จัดกลุ่มตามวันหมดอายุ',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.green[800],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '• เปิด: แยกสิ่งของเป็นกลุ่มตามวันหมดอายุที่ต่างกัน\n• ปิด: กำหนดวันหมดอายุเดียวกันสำหรับทุกชิ้น',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.green[600],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  ),
-                                  Row(
-                                  children: [
-                                    SizedBox(width: 12),
-                                    FlutterSwitch(
+                                  const SizedBox(width: 12),
+                                  FlutterSwitch(
                                     width: 70,
                                     height: 32,
                                     value: _allow_separate_expire_dates,
@@ -1609,25 +2338,21 @@ class _AddItemPageState extends State<AddItemPage> {
                                     inactiveTextColor: Colors.white,
                                     toggleColor: Colors.white,
                                     showOnOff: true,
-                                    ),
-                                   
-                                  ],
                                   ),
                                 ],
-                               
                               ),
                               const SizedBox(height: 12),
                               // แสดงส่วนการตั้งค่าตามที่ผู้ใช้เลือก
                               if (_allow_separate_expire_dates) ...[
-                                // ส่วนกรอกวันหมดอายุแต่ละชิ้น
+                                // ส่วนจัดกลุ่มวันหมดอายุ
                                 Row(
                                   children: [
                                     Icon(Icons.calendar_today, color: Colors.orange[600], size: 18),
                                     const SizedBox(width: 8),
                                     Text(
-                                      'กรอกวันหมดอายุแต่ละชิ้น',
+                                      'จัดกลุ่มตามวันหมดอายุ',
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 18,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.orange[800],
                                       ),
@@ -1636,9 +2361,9 @@ class _AddItemPageState extends State<AddItemPage> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'จะสามารถกรอกวันหมดอายุแยกแต่ละชิ้นได้',
+                                  'จะสามารถจัดกลุ่มสิ่งของตามวันหมดอายุได้ เช่น 4 ชิ้น หมดอายุ 15/9/2568',
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 16,
                                     color: Colors.orange[600],
                                   ),
                                 ),
@@ -1651,7 +2376,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                     Text(
                                       'วันหมดอายุเดียวกันทั้งหมด (${_quantity_controller.text} ชิ้น)',
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 18,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.blue[800],
                                       ),
@@ -1662,7 +2387,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                 Text(
                                   'สิ่งของทั้งหมดจะมีวันหมดอายุเดียวกัน',
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 16,
                                     color: Colors.blue[600],
                                   ),
                                 ),
@@ -1676,17 +2401,327 @@ class _AddItemPageState extends State<AddItemPage> {
                       // กรณีสิ่งของมากกว่า 1 ชิ้น และเลือกแยกวันหมดอายุ
                       // หรือในโหมดแก้ไขที่มีข้อมูล item_expire_details
                       if ((widget.is_existing_item && _item_expire_details.isNotEmpty) ||
-                          (_allow_separate_expire_dates && _use_multiple_expire_dates && _item_expire_details.isNotEmpty)) ...[
+                          (_allow_separate_expire_dates && _use_multiple_expire_dates && !widget.is_existing_item)) ...[
 
-                        // List วันหมดอายุแต่ละชิ้น (ไม่มีคำอธิบายเพิ่มเติม)
-                        ...List.generate(
-                          widget.is_existing_item 
-                            ? _item_expire_details.length 
-                            : (int.tryParse(_quantity_controller.text) ?? 0), 
-                          (index) {
-                          // ตรวจสอบว่ามีข้อมูลใน _item_expire_details หรือไม่
-                          final bool hasDetail = index < _item_expire_details.length;
-                          final detail = hasDetail ? _item_expire_details[index] : null;
+                        // แสดงระบบกลุ่มวันหมดอายุใหม่ (เฉพาะโหมดเพิ่มใหม่)
+                        if (!widget.is_existing_item) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'กลุ่มวันหมดอายุ',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  'รวม: ${_get_total_grouped_quantity()}/${_quantity_controller.text} ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _get_total_grouped_quantity() == (int.tryParse(_quantity_controller.text) ?? 0) 
+                                        ? Colors.green 
+                                        : Colors.orange,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (_expire_date_groups.length > 1)
+                                  TextButton(
+                                    onPressed: _distribute_equally,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: const Color(0xFF4A90E2),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text(
+                                      'กระจายเท่าๆกัน',
+                                      style: TextStyle(fontSize: 10),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // แสดงสรุปการจัดกลุ่ม
+                          if (_expire_date_groups.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.blue[200]!),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.info_outline, color: Colors.blue[600], size: 16),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'สรุปการจัดกลุ่ม',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.blue[800],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  ...List.generate(_expire_date_groups.length, (index) {
+                                    final group = _expire_date_groups[index];
+                                    int startItem = 1;
+                                    for (int i = 0; i < index; i++) {
+                                      startItem += _expire_date_groups[i]['quantity'] as int;
+                                    }
+                                    int endItem = startItem + (group['quantity'] as int) - 1;
+                                    
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '• กลุ่มที่ ${index + 1}: ${group['quantity']} ชิ้น ${(group['quantity'] as int) == 1 ? '(ชิ้นที่ $startItem)' : '(ชิ้นที่ $startItem-$endItem)'} หมดอายุ ${_format_date(group['expire_date'] ?? _selected_date)}',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.blue[700],
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 8),
+
+                          // รายการกลุ่มวันหมดอายุ
+                          ...List.generate(_expire_date_groups.length, (index) {
+                            final group = _expire_date_groups[index];
+                            
+                            // คำนวณช่วงชิ้นที่ของกลุ่มนี้
+                            int startItem = 1;
+                            for (int i = 0; i < index; i++) {
+                              startItem += _expire_date_groups[i]['quantity'] as int;
+                            }
+                            int endItem = startItem + (group['quantity'] as int) - 1;
+                            
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey[300]!),
+                                borderRadius: BorderRadius.circular(8),
+                                color: Colors.grey[50],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'กลุ่มที่ ${index + 1}',
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue[100],
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          (group['quantity'] as int) == 1 
+                                              ? 'ชิ้นที่ $startItem'
+                                              : 'ชิ้นที่ $startItem-$endItem',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.blue[800],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (_expire_date_groups.length > 1)
+                                        IconButton(
+                                          onPressed: () => _remove_expire_group(index),
+                                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+
+                                  // จำนวนชิ้น
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        'จำนวน:',
+                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        width: 28,
+                                        height: 28,
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: Colors.grey[300]!),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: IconButton(
+                                          onPressed: () {
+                                            final currentQty = group['quantity'] as int;
+                                            if (currentQty > 1) {
+                                              _update_expire_group_quantity(index, currentQty - 1);
+                                            }
+                                          },
+                                          icon: const Icon(Icons.remove, size: 12),
+                                          padding: EdgeInsets.zero,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Container(
+                                        width: 40,
+                                        height: 28,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: Colors.grey[300]!),
+                                          borderRadius: BorderRadius.circular(4),
+                                          color: Colors.white,
+                                        ),
+                                        child: Text(
+                                          '${group['quantity']}',
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Container(
+                                        width: 28,
+                                        height: 28,
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: Colors.grey[300]!),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: IconButton(
+                                          onPressed: () {
+                                            final currentQty = group['quantity'] as int;
+                                            final totalAvailable = (int.tryParse(_quantity_controller.text) ?? 0);
+                                            final otherGroupsTotal = _expire_date_groups
+                                                .where((g) => g != group)
+                                                .fold<int>(0, (sum, g) => sum + (g['quantity'] as int));
+                                            
+                                            if (currentQty + otherGroupsTotal < totalAvailable) {
+                                              _update_expire_group_quantity(index, currentQty + 1);
+                                            }
+                                          },
+                                          icon: const Icon(Icons.add, size: 12),
+                                          padding: EdgeInsets.zero,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'ชิ้น',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+
+                                  // วันหมดอายุ
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 3,
+                                        child: _build_dropdown(
+                                          value: _units.contains(group['unit']) ? group['unit'] : 'วันหมดอายุ(EXP)',
+                                          items: _units,
+                                          fontSize: 12,
+                                          onChanged: (value) {
+                                            _update_expire_group_unit(index, value!);
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        flex: 2,
+                                        child: GestureDetector(
+                                          onTap: () async {
+                                            final DateTime? picked = await showDatePicker(
+                                              context: context,
+                                              initialDate: group['expire_date'] ?? _selected_date,
+                                              firstDate: DateTime(2000),
+                                              lastDate: DateTime(2101),
+                                            );
+                                            if (picked != null) {
+                                              _update_expire_group_date(index, picked);
+                                            }
+                                          },
+                                          child: Container(
+                                            height: 40,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                                            decoration: BoxDecoration(
+                                              border: Border.all(color: Colors.grey[300]!),
+                                              borderRadius: BorderRadius.circular(8),
+                                              color: Colors.white,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    _format_date(group['expire_date'] ?? _selected_date),
+                                                    style: const TextStyle(fontSize: 12),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+
+                          // ปุ่มเพิ่มกลุ่ม
+                          if (_get_total_grouped_quantity() < (int.tryParse(_quantity_controller.text) ?? 0))
+                            Container(
+                              width: double.infinity,
+                              height: 40,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: OutlinedButton.icon(
+                                onPressed: _add_expire_group,
+                                icon: const Icon(Icons.add, size: 16),
+                                label: const Text('เพิ่มกลุ่มวันหมดอายุ'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF4A90E2),
+                                  side: const BorderSide(color: Color(0xFF4A90E2)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+
+                        // แสดงรายการวันหมดอายุแต่ละชิ้นในโหมดแก้ไข (เดิม)
+                        if (widget.is_existing_item) ...[
+                          ...List.generate(_item_expire_details.length, (index) {
+                            // ตรวจสอบว่ามีข้อมูลใน _item_expire_details หรือไม่
+                            final bool hasDetail = index < _item_expire_details.length;
+                            final detail = hasDetail ? _item_expire_details[index] : null;
                           
                           return Container(
                             margin: const EdgeInsets.only(bottom: 8),
@@ -1718,6 +2753,10 @@ class _AddItemPageState extends State<AddItemPage> {
                                         onChanged: (value) {
                                           setState(() {
                                             _selected_unit = value!;
+                                            // อัพเดตกลุ่มวันหมดอายุที่มีอยู่แล้วด้วย (ถ้ามี)
+                                            for (int i = 0; i < _expire_date_groups.length; i++) {
+                                              _expire_date_groups[i]['unit'] = value;
+                                            }
                                           });
                                         },
                                       ),
@@ -1834,6 +2873,7 @@ class _AddItemPageState extends State<AddItemPage> {
                             ),
                           );
                         }),
+                        ], // ปิด if (widget.is_existing_item)
                       ] else if (!widget.is_existing_item && _enable_multiple_locations_option && !_allow_separate_expire_dates) ...[
                         // กรณีมีสิ่งของมากกว่า 1 ชิ้น แต่เลือกใช้วันหมดอายุเดียวกัน
                         Row(
@@ -1940,8 +2980,8 @@ class _AddItemPageState extends State<AddItemPage> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      // แสดงการเลือกพื้นที่เก็บหลักเฉพาะเมื่อไม่ได้ใช้ multiple locations
-                      if (!widget.is_existing_item && !_use_multiple_locations) ...[
+                      // แสดงการเลือกพื้นที่เก็บหลักเฉพาะเมื่อไม่ได้ใช้ multiple locations และไม่ได้ใช้ระบบแยกพื้นที่สิ่งของ
+                      if (!widget.is_existing_item && !_use_multiple_locations && !_allow_separate_storage) ...[
                         _build_section_title('พื้นที่จัดเก็บ'),
                         const SizedBox(height: 12),
                         // Modified dropdown for storage locations
@@ -2029,56 +3069,592 @@ class _AddItemPageState extends State<AddItemPage> {
                       ),
                       ], // ปิด if (!widget.is_existing_item)
                       
-                      // Multiple locations option toggle (ซ่อนในโหมดแก้ไข)
-                      if (_enable_multiple_locations_option && !widget.is_existing_item) ...[
+                      // แสดงข้อความแจ้งเตือนเมื่อซ่อนพื้นที่จัดเก็บเพราะใช้ระบบแยกพื้นที่สิ่งของ
+                      if (!widget.is_existing_item && (_allow_separate_storage || _use_multiple_locations)) ...[
                         const SizedBox(height: 16),
                         Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.blue[50],
+                            color: Colors.amber[50],
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.blue[200]!),
+                            border: Border.all(color: Colors.amber[200]!),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.info_outline, color: Colors.blue[600], size: 20),
+                              Icon(Icons.info_outline, color: Colors.amber[600], size: 18),
                               const SizedBox(width: 12),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'ต้องการเพิ่มพื้นที่จัดเก็บมากกว่าหนึ่งแห่งหรือไม่?',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.blue[800],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'เลือก "ใช่" หากต้องการแยกจำนวนสิ่งของไปเก็บในพื้นที่หลายแห่ง',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.blue[600],
-                                      ),
-                                    ),
-                                  ],
+                                child: Text(
+                                  _allow_separate_storage 
+                                      ? 'การตั้งค่าพื้นที่จัดเก็บจะกำหนดในแต่ละกลุ่มด้านล่าง'
+                                      : 'การตั้งค่าพื้นที่จัดเก็บจะกำหนดเป็นพื้นที่หลักและพื้นที่เพิ่มเติมด้านล่าง',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: const Color.fromARGB(255, 0, 0, 0),
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Switch(
-                                value: _use_multiple_locations,
-                                onChanged: _toggle_multiple_locations,
-                                activeColor: const Color(0xFF4A90E2),
                               ),
                             ],
                           ),
                         ),
                       ],
                       
-                      // Multiple storage locations section (ซ่อนในโหมดแก้ไข)
-                      if (_use_multiple_locations && _enable_multiple_locations_option && !widget.is_existing_item) ...[
+                      // Individual Storage Management Option (ซ่อนในโหมดแก้ไข)
+                      if (!widget.is_existing_item && (int.tryParse(_quantity_controller.text) ?? 0) > 1) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.green[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green[200]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.storage, color: Colors.green[600], size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'จัดกลุ่มตามพื้นที่เก็บ',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.green[800],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '• เปิด: แยกสิ่งของเป็นกลุ่มตามพื้นที่เก็บที่ต่างกัน\n• ปิด: เก็บสิ่งของทุกชิ้นในพื้นที่เดียวกัน',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.green[600],
+                                      ),
+                                    ),
+                                    if (_allow_separate_storage) ...[
+
+                                    
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              FlutterSwitch(
+                                width: 70,
+                                height: 32,
+                                value: _allow_separate_storage,
+                                onToggle: _toggle_individual_storage,
+                                activeColor: Colors.green[600]!,
+                                inactiveColor: Colors.red[400]!,
+                                activeText: 'เปิด',
+                                inactiveText: 'ปิด',
+                                activeTextColor: Colors.white,
+                                inactiveTextColor: Colors.white,
+                                toggleColor: Colors.white,
+                                showOnOff: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // Storage Groups Section (ใหม่)
+                      if (_allow_separate_storage && !widget.is_existing_item && (int.tryParse(_quantity_controller.text) ?? 0) > 1) ...[
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _build_section_title('จัดกลุ่มพื้นที่เก็บ'),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'สถานะ: ${_get_total_grouped_storage_quantity() >= (int.tryParse(_quantity_controller.text) ?? 0) ? "จัดครบแล้ว" : "ยังจัดไม่ครบ"}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _get_total_grouped_storage_quantity() >= (int.tryParse(_quantity_controller.text) ?? 0) ? Colors.green : Colors.orange,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'รวม: ${(int.tryParse(_quantity_controller.text) ?? 0)} ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  'จัดแล้ว: ${_get_total_grouped_storage_quantity()} ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.green[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // รายการกลุ่มพื้นที่เก็บ
+                        ...List.generate(_storage_groups.length, (index) {
+                          final group = _storage_groups[index];
+                          final totalAvailable = int.tryParse(_quantity_controller.text) ?? 0;
+                          final otherGroupsTotal = _storage_groups
+                              .asMap()
+                              .entries
+                              .where((entry) => entry.key != index)
+                              .fold<int>(0, (sum, entry) => sum + (entry.value['quantity'] as int));
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.green[300]!),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.green[50],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'กลุ่มที่ ${index + 1}',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.green[800],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'จำนวน: ${group['quantity']} ชิ้น | พื้นที่: ${group['area_name'] ?? 'ยังไม่เลือก'}',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.green[600],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (_storage_groups.length > 1)
+                                      IconButton(
+                                        onPressed: () => _remove_storage_group(index),
+                                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+
+                                // จำนวนสิ่งของ
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'จำนวน:',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.green[300]!),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: IconButton(
+                                        onPressed: () {
+                                          final currentQty = group['quantity'] as int;
+                                          if (currentQty > 0) {
+                                            _update_storage_group_quantity(index, currentQty - 1);
+                                          }
+                                        },
+                                        icon: const Icon(Icons.remove, size: 12),
+                                        padding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      width: 50,
+                                      height: 28,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.green[300]!),
+                                        borderRadius: BorderRadius.circular(4),
+                                        color: Colors.white,
+                                      ),
+                                      child: Text(
+                                        '${group['quantity']}',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.green[300]!),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: IconButton(
+                                        onPressed: () {
+                                          final currentQty = group['quantity'] as int;
+                                          final maxAllowed = totalAvailable - otherGroupsTotal;
+                                          
+                                          if (currentQty < maxAllowed) {
+                                            _update_storage_group_quantity(index, currentQty + 1);
+                                          }
+                                        },
+                                        icon: const Icon(Icons.add, size: 12),
+                                        padding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'ชิ้น',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+
+                                // พื้นที่เก็บ
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'พื้นที่เก็บ:',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: () {
+                                          // ตรวจสอบว่า area_name ของกลุ่มมีใน storage_locations หรือไม่
+                                          final availableAreas = _storage_locations
+                                              .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                             loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                              .map((loc) => loc['area_name'] as String)
+                                              .toList();
+                                          
+                                          final groupAreaName = group['area_name']?.toString();
+                                          
+                                          // ถ้า area_name ของกลุ่มมีอยู่ในรายการ และไม่ใช่ "เลือกพื้นที่จัดเก็บ" ให้ใช้ค่านั้น
+                                          if (groupAreaName != null && 
+                                              groupAreaName != 'เลือกพื้นที่จัดเก็บ' && 
+                                              availableAreas.contains(groupAreaName)) {
+                                            return groupAreaName;
+                                          }
+                                          
+                                          // ถ้าไม่มี หรือเป็น "เลือกพื้นที่จัดเก็บ" ให้คืนค่า null เพื่อแสดง hint
+                                          return null;
+                                        }(),
+                                        decoration: InputDecoration(
+                                          hintText: 'เลือกพื้นที่จัดเก็บ',
+                                          hintStyle: TextStyle(
+                                            color: Colors.grey[600],
+                                            fontSize: 12,
+                                          ),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(6),
+                                            borderSide: BorderSide(color: Colors.green[300]!),
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(6),
+                                            borderSide: BorderSide(color: Colors.green[300]!),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(6),
+                                            borderSide: const BorderSide(color: Color(0xFF4CAF50)),
+                                          ),
+                                          filled: true,
+                                          fillColor: Colors.white,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        ),
+                                        items: _storage_locations
+                                            .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                            .map((loc) {
+                                          return DropdownMenuItem<String>(
+                                            value: loc['area_name'],
+                                            child: Text(
+                                              loc['area_name'],
+                                              style: const TextStyle(fontSize: 12),
+                                            ),
+                                          );
+                                        }).toList(),
+                                        onChanged: (newValue) {
+                                          if (newValue != null) {
+                                            try {
+                                              final selectedLocation = _storage_locations.firstWhere(
+                                                (loc) => loc['area_name'] == newValue,
+                                                orElse: () => {'area_name': newValue, 'area_id': null}
+                                              );
+                                              _update_storage_group_area(index, newValue, selectedLocation['area_id']);
+                                            } catch (e) {
+                                              // Handle error gracefully
+                                              print('Error updating storage group area: $e');
+                                            }
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+
+                        // ปุ่มเพิ่มกลุ่ม
+                        if (_get_total_grouped_storage_quantity() < (int.tryParse(_quantity_controller.text) ?? 0))
+                          Container(
+                            width: double.infinity,
+                            height: 40,
+                            margin: const EdgeInsets.symmetric(vertical: 16),
+                            child: OutlinedButton.icon(
+                              onPressed: _add_storage_group,
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('เพิ่มกลุ่มพื้นที่เก็บ'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF4CAF50),
+                                side: const BorderSide(color: Color(0xFF4CAF50)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        // สรุปการกระจายสิ่งของตามพื้นที่เก็บ
+                        if (_storage_groups.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.summarize, color: Colors.grey[700], size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'สรุปการกระจายสิ่งของ',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.grey[800],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                ...() {
+                                  // ใช้ฟังก์ชันใหม่เพื่อแสดงรายละเอียดแต่ละชิ้น
+                                  final itemList = _generate_storage_preview();
+                                  
+                                  return itemList.map((item) {
+                                    final expireDate = item['expire_date'] as DateTime;
+                                    final unit = item['unit'] as String;
+                                    final areaName = item['area_name'] as String;
+                                    final isMain = item['is_main'] as bool? ?? false;
+                                    
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.grey[200]!),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          // หมายเลขชิ้น
+                                          Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: Colors.green[100],
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: Colors.green[300]!),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                '${item['index']}',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.green[700],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          
+                                          // ชื่อพื้นที่ (Dropdown)
+                                          Expanded(
+                                            flex: 2,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                DropdownButtonFormField<String>(
+                                                  value: _storage_locations
+                                                      .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                                      .map((loc) => loc['area_name'] as String)
+                                                      .contains(areaName) ? areaName : null,
+                                                  decoration: InputDecoration(
+                                                    border: OutlineInputBorder(
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      borderSide: BorderSide(color: Colors.grey[300]!),
+                                                    ),
+                                                    enabledBorder: OutlineInputBorder(
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      borderSide: BorderSide(color: Colors.grey[300]!),
+                                                    ),
+                                                    focusedBorder: OutlineInputBorder(
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      borderSide: const BorderSide(color: Color(0xFF4A90E2)),
+                                                    ),
+                                                    filled: true,
+                                                    fillColor: Colors.white,
+                                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                                  ),
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                  items: _storage_locations
+                                                      .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                                      .map((loc) {
+                                                    return DropdownMenuItem<String>(
+                                                      value: loc['area_name'],
+                                                      child: Text(
+                                                        loc['area_name'],
+                                                        style: const TextStyle(fontSize: 12),
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                                  onChanged: (newValue) {
+                                                    if (newValue != null) {
+                                                      try {
+                                                        final selectedLocation = _storage_locations.firstWhere(
+                                                          (loc) => loc['area_name'] == newValue,
+                                                          orElse: () => {'area_name': newValue, 'area_id': null}
+                                                        );
+                                                        
+                                                        setState(() {
+                                                          // อัปเดตข้อมูลในรายการ preview โดยตรง
+                                                          item['area_name'] = newValue;
+                                                          item['area_id'] = selectedLocation['area_id'];
+                                                          
+                                                          // บังคับให้ preview ถูก rebuild เพื่อแสดงการเปลี่ยนแปลง
+                                                        });
+                                                      } catch (e) {
+                                                        // Handle error gracefully
+                                                        print('Error updating area: $e');
+                                                      }
+                                                    }
+                                                  },
+                                                ),
+                                                if (isMain)
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(top: 4),
+                                                    child: Text(
+                                                      '(พื้นที่หลัก)',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: Colors.blue[600],
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          
+                                          // วันหมดอายุ
+                                          Expanded(
+                                            flex: 3,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                              children: [
+                                                Text(
+                                                  _format_date(expireDate),
+                                                  style: const TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  unit,
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    color: Colors.grey[600],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList();
+                                }(),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[100],
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.green[300]!),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'รวมทั้งหมด:',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.green[800],
+                                        ),
+                                      ),
+                                      Text(
+                                        '${_get_total_grouped_storage_quantity()} ชิ้น',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.green[800],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+
+                      
+                      // Multiple storage locations section (ซ่อนในโหมดแก้ไขและถ้าเปิด individual storage)
+                      if (_use_multiple_locations && _enable_multiple_locations_option && !widget.is_existing_item && !_allow_separate_storage) ...[
                         const SizedBox(height: 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2088,7 +3664,7 @@ class _AddItemPageState extends State<AddItemPage> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  'กระจายได้อีก: $_remaining_quantity ชิ้น',
+                                  'สถานะ: ${_remaining_quantity > 0 ? "ยังกระจายไม่ครบ" : "กระจายครบแล้ว"}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: _remaining_quantity > 0 ? Colors.orange : Colors.green,
@@ -2096,11 +3672,24 @@ class _AddItemPageState extends State<AddItemPage> {
                                   ),
                                 ),
                                 Text(
-                                  'พื้นที่หลัก: $_selected_storage (${(int.tryParse(_quantity_controller.text) ?? 0) - _item_locations.fold<int>(0, (sum, loc) => sum + (loc['quantity'] as int? ?? 0))} ชิ้น)',
+                                  'รวม: ${(int.tryParse(_quantity_controller.text) ?? 0)} ชิ้น',
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  'พื้นที่หลัก: ${(int.tryParse(_quantity_controller.text) ?? 0) - _item_locations.fold<int>(0, (sum, loc) => sum + (loc['quantity'] as int? ?? 0))} ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 11,
                                     color: Colors.blue[600],
-                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'พื้นที่เพิ่มเติม: ${_item_locations.fold<int>(0, (sum, loc) => sum + (loc['quantity'] as int? ?? 0))} ชิ้น',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.purple[600],
                                   ),
                                 ),
                               ],
@@ -2175,11 +3764,11 @@ class _AddItemPageState extends State<AddItemPage> {
                                       onPressed: () {
                                         final currentMainQty = (int.tryParse(_quantity_controller.text) ?? 0) - 
                                             _item_locations.fold<int>(0, (sum, loc) => sum + (loc['quantity'] as int? ?? 0));
-                                        if (currentMainQty > 1) {
-                                          // เพิ่มจำนวนในพื้นที่กระจาย (ลดพื้นที่หลัก)
-                                          if (_item_locations.isNotEmpty) {
-                                            _update_location_quantity(0, _item_locations[0]['quantity'] + 1);
-                                          }
+                                        if (currentMainQty > 1 && _item_locations.isNotEmpty) {
+                                          // ลดจำนวนในพื้นที่หลัก = เพิ่มจำนวนในพื้นที่กระจาย
+                                          final firstLocation = _item_locations[0];
+                                          final newQty = (firstLocation['quantity'] as int) + 1;
+                                          _update_location_quantity(0, newQty);
                                         }
                                       },
                                       icon: const Icon(Icons.remove, size: 12),
@@ -2212,9 +3801,16 @@ class _AddItemPageState extends State<AddItemPage> {
                                     ),
                                     child: IconButton(
                                       onPressed: () {
-                                        // ลดจำนวนในพื้นที่กระจาย (เพิ่มพื้นที่หลัก)
-                                        if (_item_locations.isNotEmpty && _item_locations[0]['quantity'] > 1) {
-                                          _update_location_quantity(0, _item_locations[0]['quantity'] - 1);
+                                        // เพิ่มจำนวนในพื้นที่หลัก = ลดจำนวนในพื้นที่กระจาย
+                                        if (_item_locations.isNotEmpty) {
+                                          final firstLocation = _item_locations[0];
+                                          final currentQty = firstLocation['quantity'] as int;
+                                          if (currentQty > 1) {
+                                            _update_location_quantity(0, currentQty - 1);
+                                          } else if (currentQty == 1) {
+                                            // ถ้าเหลือ 1 ชิ้น ให้ลบ location นั้นออก
+                                            _remove_storage_location(0);
+                                          }
                                         }
                                       },
                                       icon: const Icon(Icons.add, size: 12),
@@ -2247,12 +3843,64 @@ class _AddItemPageState extends State<AddItemPage> {
                             ),
                             child: Column(
                               children: [
+                                // หัวข้อของพื้นที่เพิ่มเติม
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'พื้นที่เพิ่มเติม ${index + 1}',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey[800],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'จำนวน: ${_item_locations[index]['quantity']} ชิ้น | พื้นที่: ${_item_locations[index]['area_name'] ?? 'ยังไม่เลือก'}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey[600],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    IconButton(
+                                      onPressed: () => _remove_storage_location(index),
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
                                 Row(
                                   children: [
                                     Expanded(
                                       flex: 3,
                                       child: DropdownButtonFormField<String>(
-                                        value: _item_locations[index]['area_name'],
+                                        value: () {
+                                          // ตรวจสอบว่า area_name ของ location มีใน storage_locations หรือไม่
+                                          final availableAreas = _storage_locations
+                                              .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                             loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                              .map((loc) => loc['area_name'] as String)
+                                              .toList();
+                                          
+                                          final locationAreaName = _item_locations[index]['area_name']?.toString();
+                                          
+                                          // ถ้า area_name ของ location มีอยู่ในรายการ ให้ใช้ค่านั้น
+                                          if (locationAreaName != null && availableAreas.contains(locationAreaName)) {
+                                            return locationAreaName;
+                                          }
+                                          
+                                          // ถ้าไม่มี ให้เลือกพื้นที่แรกที่มี
+                                          return availableAreas.isNotEmpty ? availableAreas.first : null;
+                                        }(),
                                         decoration: InputDecoration(
                                           border: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(6),
@@ -2284,10 +3932,16 @@ class _AddItemPageState extends State<AddItemPage> {
                                         }).toList(),
                                         onChanged: (newValue) {
                                           if (newValue != null) {
-                                            final selectedLocation = _storage_locations.firstWhere(
-                                              (loc) => loc['area_name'] == newValue
-                                            );
-                                            _update_location_area(index, newValue, selectedLocation['area_id']);
+                                            try {
+                                              final selectedLocation = _storage_locations.firstWhere(
+                                                (loc) => loc['area_name'] == newValue,
+                                                orElse: () => {'area_name': newValue, 'area_id': null}
+                                              );
+                                              _update_location_area(index, newValue, selectedLocation['area_id']);
+                                            } catch (e) {
+                                              // Handle error gracefully
+                                              print('Error updating location area: $e');
+                                            }
                                           }
                                         },
                                       ),
@@ -2352,18 +4006,174 @@ class _AddItemPageState extends State<AddItemPage> {
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    IconButton(
-                                      onPressed: () => _remove_storage_location(index),
-                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                                      padding: EdgeInsets.zero,
-                                    ),
                                   ],
                                 ),
                               ],
                             ),
                           );
                         }),
+                        
+                        // สรุปการกระจายสิ่งของสำหรับ Multiple Locations
+                        if (_item_locations.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue[200]!),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.summarize, color: Colors.blue[700], size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'สรุปการกระจายสิ่งของ',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue[800],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                
+                                // แสดงรายละเอียดแต่ละชิ้นสำหรับ Multiple Locations
+                                ...() {
+                                  final itemList = _generate_storage_preview();
+                                  
+                                  return itemList.map((item) {
+                                    final expireDate = item['expire_date'] as DateTime;
+                                    final unit = item['unit'] as String;
+                                    final areaName = item['area_name'] as String;
+                                    final isMain = item['is_main'] as bool? ?? false;
+                                    
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.blue[200]!),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          // หมายเลขชิ้น
+                                          Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: isMain ? Colors.blue[100] : Colors.orange[100],
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: isMain ? Colors.blue[300]! : Colors.orange[300]!),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                '${item['index']}',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isMain ? Colors.blue[700] : Colors.orange[700],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          
+                                          // ชื่อพื้นที่
+                                          Expanded(
+                                            flex: 2,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  areaName,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                if (isMain)
+                                                  Text(
+                                                    '(พื้นที่หลัก)',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      color: Colors.blue[600],
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          
+                                          // วันหมดอายุ
+                                          Expanded(
+                                            flex: 3,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                              children: [
+                                                Text(
+                                                  _format_date(expireDate),
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  unit,
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    color: Colors.grey[600],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList();
+                                }(),
+                                
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue[100],
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.blue[300]!),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'รวมทั้งหมด:',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.blue[800],
+                                        ),
+                                      ),
+                                      Text(
+                                        '${int.tryParse(_quantity_controller.text) ?? 0} ชิ้น',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.blue[800],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        
                         // Add more location button
                         if (_remaining_quantity > 0)
                           Container(

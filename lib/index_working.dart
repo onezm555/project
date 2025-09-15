@@ -360,7 +360,7 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
         ],
       );
     } else {
-      // สินค้าปกติ (> 7 วัน) - สีเขียว
+      // สิ่งของปกติ (> 7 วัน) - สีเขียว
       textColor = Colors.green.shade700;
       borderColor = Colors.green.shade400;
       cardGradient = const LinearGradient(
