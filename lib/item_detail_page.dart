@@ -1420,7 +1420,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                         _build_text_display(
                           controller: _quantity_controller,
                           hint: 'จำนวน',
-                          textAlign: TextAlign.center,
+                          textAlign: TextAlign.left,
                         ),
                       ],
                     ),
@@ -1619,6 +1619,11 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   Widget _build_status_section() {
     final String status = widget.item_data['item_status'] ?? 'active';
     
+    // ไม่แสดงสถานะ active เพื่อลดความซับซ้อน
+    if (status == 'active') {
+      return const SizedBox.shrink(); // ไม่แสดงอะไรเลยสำหรับ active
+    }
+    
     Color statusColor;
     String statusText;
     IconData statusIcon;
@@ -1634,12 +1639,8 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         statusText = 'ทิ้ง/หมดอายุ';
         statusIcon = Icons.cancel;
         break;
-      case 'active':
       default:
-        statusColor = Colors.blue;
-        statusText = 'ใช้งานได้';
-        statusIcon = Icons.inventory;
-        break;
+        return const SizedBox.shrink(); 
     }
     
     return Row(
@@ -1711,28 +1712,64 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
             final days_left = expire_date.difference(DateTime.now()).inDays;
             
             if (days_left < 0) {
-              expire_text = 'หมดอายุแล้ว ${days_left.abs()} วัน';
+              // ตรวจสอบประเภทวันที่
+              final dateType = widget.item_data['date_type']?.toString().toUpperCase() ?? 'EXP';
+              if (dateType == 'BBF') {
+                expire_text = 'เลยวันควรบริโภคก่อนแล้ว ${days_left.abs()} วัน';
+              } else {
+                expire_text = 'หมดอายุแล้ว ${days_left.abs()} วัน';
+              }
               expire_color = Colors.red;
             } else if (days_left == 0) {
-              expire_text = 'หมดอายุวันนี้';
+              // ตรวจสอบประเภทวันที่สำหรับวันที่หมดอายุวันนี้
+              final dateType = widget.item_data['date_type']?.toString().toUpperCase() ?? 'EXP';
+              if (dateType == 'BBF') {
+                expire_text = 'ควรบริโภคก่อนวันนี้';
+              } else {
+                expire_text = 'หมดอายุวันนี้';
+              }
               expire_color = Colors.red;
             } else if (days_left == 1) {
-              expire_text = 'หมดอายุพรุ่งนี้';
+              // ตรวจสอบประเภทวันที่สำหรับพรุ่งนี้
+              final dateType = widget.item_data['date_type']?.toString().toUpperCase() ?? 'EXP';
+              if (dateType == 'BBF') {
+                expire_text = 'ควรบริโภคก่อนพรุ่งนี้';
+              } else {
+                expire_text = 'หมดอายุพรุ่งนี้';
+              }
               expire_color = Colors.orange;
             } else if (days_left <= 7) {
-              expire_text = 'หมดอายุอีก $days_left วัน';
+              // ตรวจสอบประเภทวันที่สำหรับ 7 วันข้างหน้า
+              final dateType = widget.item_data['date_type']?.toString().toUpperCase() ?? 'EXP';
+              if (dateType == 'BBF') {
+                expire_text = 'ควรบริโภคก่อนอีก $days_left วัน';
+              } else {
+                expire_text = 'หมดอายุอีก $days_left วัน';
+              }
               expire_color = Colors.orange;
             } else if (days_left <= 30) {
-              expire_text = 'หมดอายุอีก $days_left วัน';
+              // ตรวจสอบประเภทวันที่สำหรับ 30 วันข้างหน้า
+              final dateType = widget.item_data['date_type']?.toString().toUpperCase() ?? 'EXP';
+              if (dateType == 'BBF') {
+                expire_text = 'ควรบริโภคก่อนอีก $days_left วัน';
+              } else {
+                expire_text = 'หมดอายุอีก $days_left วัน';
+              }
               expire_color = Colors.blue;
             } else {
-              // แสดงวันที่เต็ม
+              // แสดงวันที่เต็มสำหรับวันที่ไกลกว่า 30 วัน
               final months = [
                 '', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
                 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
               ];
               final buddhist_year = expire_date.year + 543;
-              expire_text = 'หมดอายุ ${expire_date.day} ${months[expire_date.month]} $buddhist_year';
+              // ตรวจสอบประเภทวันที่สำหรับการแสดงวันที่เต็ม
+              final dateType = widget.item_data['date_type']?.toString().toUpperCase() ?? 'EXP';
+              if (dateType == 'BBF') {
+                expire_text = 'ควรบริโภคก่อน ${expire_date.day} ${months[expire_date.month]} $buddhist_year';
+              } else {
+                expire_text = 'หมดอายุ ${expire_date.day} ${months[expire_date.month]} $buddhist_year';
+              }
               expire_color = Colors.green;
             }
           } catch (e) {
@@ -1776,48 +1813,29 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    // แสดงสถานะของแต่ละชิ้น
+                    const Spacer(),
+                    // สถานะวันหมดอายุ หรือ สถานะการใช้งาน
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: itemStatus == 'active' ? Colors.green[100] 
-                             : itemStatus == 'disposed' ? Colors.blue[100]
-                             : Colors.red[100],
+                        color: itemStatus != 'active' 
+                          ? (itemStatus == 'disposed' ? Colors.blue[100] : Colors.red[100])
+                          : expire_color.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        itemStatus == 'active' ? 'ใช้งานได้'
-                        : itemStatus == 'disposed' ? 'ใช้งานหมดแล้ว'
+                        itemStatus == 'disposed' ? 'ใช้งานหมดแล้ว'
                         : itemStatus == 'expired' ? 'ทิ้ง/หมดอายุ'
-                        : 'ไม่ทราบสถานะ',
+                        : expire_text, // แสดงข้อความวันหมดอายุสำหรับ active
                         style: TextStyle(
-                          fontSize: 15, // เพิ่มจาก 11 เป็น 15
-                          fontWeight: FontWeight.w600,
-                          color: itemStatus == 'active' ? Colors.green[700] 
-                               : itemStatus == 'disposed' ? Colors.blue[700]
-                               : Colors.red[700],
+                          fontSize: 16, // เพิ่มจาก 12 เป็น 16
+                          fontWeight: FontWeight.w500,
+                          color: itemStatus != 'active'
+                            ? (itemStatus == 'disposed' ? Colors.blue[700] : Colors.red[700])
+                            : expire_color,
                         ),
                       ),
                     ),
-                    const Spacer(),
-                    // สถานะวันหมดอายุ - แสดงเฉพาะเมื่อสถานะเป็น active
-                    if (itemStatus == 'active')
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: expire_color.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          expire_text,
-                          style: TextStyle(
-                            fontSize: 16, // เพิ่มจาก 12 เป็น 16
-                            fontWeight: FontWeight.w500,
-                            color: expire_color,
-                          ),
-                        ),
-                      ),
                   ],
                 ),
                 
@@ -1843,8 +1861,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _build_detail_row('จำนวน:', '${detail['quantity'] ?? 1} ชิ้น'),
-                          if (expire_date != null)
-                            _build_detail_row('วันหมดอายุ:', '${expire_date.day}/${expire_date.month}/${expire_date.year + 543}'),
+                          // ไม่แสดงวันหมดอายุเพราะแสดงไว้ด้านบนแล้ว
                         ],
                       ),
                     ),
@@ -2158,7 +2175,7 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         return 'ทิ้ง/หมดอายุแล้ว';
       case 'active':
       default:
-        return 'ใช้งานได้';
+        return ''; // ไม่แสดงข้อความสำหรับ active
     }
   }
 

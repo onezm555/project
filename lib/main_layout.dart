@@ -164,9 +164,9 @@ class _MainLayoutState extends State<MainLayout> {
   void _handle_search(String query) {
     print('Searching for: $query');
     if (query.trim().isEmpty) {
-      _indexPageState?.fetchItemsData(filters: {});
+      _indexPageState?.fetchItemsData(filters: {'item_status': 'active'});
     } else {
-      _indexPageState?.fetchItemsData(filters: {'search_query': query});
+      _indexPageState?.fetchItemsData(filters: {'search_query': query, 'item_status': 'active'});
     }
   }
 
@@ -288,7 +288,7 @@ class _MainLayoutState extends State<MainLayout> {
     ).then((result) {
       if (result == true) {
         // Refresh data on IndexPage after adding item
-        _indexPageState?.fetchItemsData();
+        _indexPageState?.fetchItemsData(filters: {'item_status': 'active'});
       }
     });
   }
@@ -428,7 +428,7 @@ class _MainLayoutState extends State<MainLayout> {
           ).then((result) {
             if (result == true) {
               // Refresh data on IndexPage after adding item
-              _indexPageState?.fetchItemsData();
+              _indexPageState?.fetchItemsData(filters: {'item_status': 'active'});
             }
           });
         } else {
@@ -491,7 +491,7 @@ class _MainLayoutState extends State<MainLayout> {
                 ),
               ).then((result) {
                 if (result == true) {
-                  _indexPageState?.fetchItemsData();
+                  _indexPageState?.fetchItemsData(filters: {'item_status': 'active'});
                 }
               });
             },
@@ -748,6 +748,10 @@ class _MainLayoutState extends State<MainLayout> {
                 if (_selected_sort_order != null) {
                   filters['sort_order'] = _selected_sort_order;
                 }
+                
+                // กำหนดให้แสดงเฉพาะสิ่งของที่มีสถานะ active เสมอ
+                filters['item_status'] = 'active';
+                
                 // Determine expiration status filter
                 if (_filter_expired) {
                   filters['status'] = 'expired';
@@ -794,8 +798,8 @@ class _MainLayoutState extends State<MainLayout> {
                   _filter_expiring_7_days = false;
                   _filter_expiring_30_days = false;
                 });
-                // Call fetchItemsData on IndexPage to clear filters (fetch all)
-                _indexPageState?.fetchItemsData(filters: {}); // Pass empty filters
+                // Call fetchItemsData on IndexPage to clear filters (fetch all active items)
+                _indexPageState?.fetchItemsData(filters: {'item_status': 'active'}); // Pass active status filter
                 Navigator.pop(context); // Close the modal
               },
               style: OutlinedButton.styleFrom(

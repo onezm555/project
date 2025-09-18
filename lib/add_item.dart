@@ -31,6 +31,12 @@ class _AddItemPageState extends State<AddItemPage> {
   final GlobalKey<FormState> _form_key = GlobalKey<FormState>();
 
   DateTime _selected_date = DateTime.now().add(const Duration(days: 7));
+  
+  // Variables for date dropdown selection
+  int _selected_day = DateTime.now().add(const Duration(days: 7)).day;
+  int _selected_month = DateTime.now().add(const Duration(days: 7)).month;
+  int _selected_year = DateTime.now().add(const Duration(days: 7)).year;
+  
   String _selected_unit = 'วันหมดอายุ(EXP)';
   String _selected_category = 'เลือกประเภท';
   String _selected_storage = 'เลือกพื้นที่จัดเก็บ';
@@ -72,6 +78,11 @@ class _AddItemPageState extends State<AddItemPage> {
   @override
   void initState() {
     super.initState();
+    // Sync dropdown values with _selected_date
+    _selected_day = _selected_date.day;
+    _selected_month = _selected_date.month;
+    _selected_year = _selected_date.year;
+    
     _initialize_data();
     _notification_days_controller.text = '7';
 
@@ -173,8 +184,16 @@ class _AddItemPageState extends State<AddItemPage> {
       if (item['item_date'] != null) {
         try {
           _selected_date = DateTime.parse(item['item_date']);
+          // Sync dropdown values
+          _selected_day = _selected_date.day;
+          _selected_month = _selected_date.month;
+          _selected_year = _selected_date.year;
         } catch (e) {
           _selected_date = DateTime.now().add(const Duration(days: 7));
+          // Sync dropdown values for default date
+          _selected_day = _selected_date.day;
+          _selected_month = _selected_date.month;
+          _selected_year = _selected_date.year;
         }
       }
     }
@@ -443,22 +462,45 @@ class _AddItemPageState extends State<AddItemPage> {
     }
   }
 
-  Future<void> _select_date() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selected_date,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-    );
-    if (picked != null && picked != _selected_date) {
-      setState(() {
-        _selected_date = picked;
-      });
+  // Update _selected_date from dropdown values
+  void _update_selected_date() {
+    try {
+      _selected_date = DateTime(_selected_year, _selected_month, _selected_day);
+    } catch (e) {
+      // If invalid date, reset to valid date
+      _selected_date = DateTime(_selected_year, _selected_month, 1);
+      _selected_day = 1;
     }
   }
 
+  // Get list of months in Thai
+  List<Map<String, dynamic>> _get_months() {
+    return [
+      {'value': 1, 'name': '01'},
+      {'value': 2, 'name': '02'},
+      {'value': 3, 'name': '03'},
+      {'value': 4, 'name': '04'},
+      {'value': 5, 'name': '05'},
+      {'value': 6, 'name': '06'},
+      {'value': 7, 'name': '07'},
+      {'value': 8, 'name': '08'},
+      {'value': 9, 'name': '09'},
+      {'value': 10, 'name': '10'},
+      {'value': 11, 'name': '11'},
+      {'value': 12, 'name': '12'},
+    ];
+  }
+
+  // Get list of years (from last year to 20 years in the future)
+  List<int> _get_years() {
+    int currentYear = DateTime.now().year;
+    return List.generate(22, (index) => currentYear - 1 + index); // From last year to +20 years (22 years total)
+  }
+
   String _format_date(DateTime date) {
-    return "${date.day}/${date.month}/${date.year + 543}"; // Convert to Buddhist year
+    String day = date.day.toString().padLeft(2, '0');
+    String month = date.month.toString().padLeft(2, '0');
+    return "$day/$month/${date.year}"; // Show in DD/MM/YYYY format
   }
 
   bool _isDataInitialized() {
@@ -1572,7 +1614,8 @@ class _AddItemPageState extends State<AddItemPage> {
         }
       }
       
-      if (_use_multiple_locations && _enable_multiple_locations_option && !_allow_separate_storage) {
+      // ตรวจสอบการกระจายพื้นที่เฉพาะในโหมดเพิ่มใหม่เท่านั้น
+      if (!widget.is_existing_item && _use_multiple_locations && _enable_multiple_locations_option && !_allow_separate_storage) {
         // ตรวจสอบว่าเลือกพื้นที่หลักแล้วหรือไม่
         if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
           _show_error_message('กรุณาเลือกพื้นที่จัดเก็บหลักก่อน');
@@ -1602,7 +1645,16 @@ class _AddItemPageState extends State<AddItemPage> {
         }
         
       } else if (!_allow_separate_storage) {
-        // Validate single location (ไม่ใช้ระบบกลุ่มหรือ multiple locations)
+        // Validate single location (ไม่ใช้ระบบกลุ่มหรือ multiple locations) - ใช้ทั้งโหมดเพิ่มและแก้ไข
+        if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
+          _show_error_message('กรุณาเลือกพื้นที่จัดเก็บ');
+          return false;
+        }
+      }
+      
+      // สำหรับโหมดแก้ไข: ตรวจสอบเฉพาะพื้นฐาน ไม่ต้องตรวจสอบการกระจาย
+      if (widget.is_existing_item) {
+        // ตรวจสอบพื้นที่เก็บพื้นฐาน
         if (_selected_storage == 'เลือกพื้นที่จัดเก็บ') {
           _show_error_message('กรุณาเลือกพื้นที่จัดเก็บ');
           return false;
@@ -2527,7 +2579,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                       Text(
                                         'กลุ่มที่ ${index + 1}',
                                         style: const TextStyle(
-                                          fontSize: 14,
+                                          fontSize: 18,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -2543,7 +2595,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                               ? 'ชิ้นที่ $startItem'
                                               : 'ชิ้นที่ $startItem-$endItem',
                                           style: TextStyle(
-                                            fontSize: 11,
+                                            fontSize: 14,
                                             color: Colors.blue[800],
                                             fontWeight: FontWeight.w500,
                                           ),
@@ -2566,7 +2618,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                     children: [
                                       const Text(
                                         'จำนวน:',
-                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                                       ),
                                       const SizedBox(width: 8),
                                       Container(
@@ -2599,7 +2651,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                         ),
                                         child: Text(
                                           '${group['quantity']}',
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
@@ -2630,7 +2682,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                       const SizedBox(width: 8),
                                       const Text(
                                         'ชิ้น',
-                                        style: TextStyle(fontSize: 12),
+                                        style: TextStyle(fontSize: 16),
                                       ),
                                     ],
                                   ),
@@ -2644,7 +2696,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                         child: _build_dropdown(
                                           value: _units.contains(group['unit']) ? group['unit'] : 'วันหมดอายุ(EXP)',
                                           items: _units,
-                                          fontSize: 12,
+                                          fontSize: 16,
                                           onChanged: (value) {
                                             _update_expire_group_unit(index, value!);
                                           },
@@ -2655,15 +2707,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                         flex: 2,
                                         child: GestureDetector(
                                           onTap: () async {
-                                            final DateTime? picked = await showDatePicker(
-                                              context: context,
-                                              initialDate: group['expire_date'] ?? _selected_date,
-                                              firstDate: DateTime(2000),
-                                              lastDate: DateTime(2101),
-                                            );
-                                            if (picked != null) {
-                                              _update_expire_group_date(index, picked);
-                                            }
+                                            await _show_expire_group_date_picker(index, group['expire_date'] ?? _selected_date);
                                           },
                                           child: Container(
                                             height: 40,
@@ -2680,7 +2724,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                                 Expanded(
                                                   child: Text(
                                                     _format_date(group['expire_date'] ?? _selected_date),
-                                                    style: const TextStyle(fontSize: 12),
+                                                    style: const TextStyle(fontSize: 16),
                                                   ),
                                                 ),
                                               ],
@@ -2737,7 +2781,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                 Text(
                                   'ชิ้นที่ ${index + 1}',
                                   style: const TextStyle(
-                                    fontSize: 14,
+                                    fontSize: 18,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -2749,7 +2793,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                       child: _build_dropdown(
                                         value: _units.contains(_selected_unit) ? _selected_unit : 'วันหมดอายุ(EXP)',
                                         items: _units,
-                                        fontSize: 12, // ฟอนต์เล็กกว่า
+                                        fontSize: 16, // เพิ่มขนาดฟอนต์
                                         onChanged: (value) {
                                           setState(() {
                                             _selected_unit = value!;
@@ -2766,17 +2810,10 @@ class _AddItemPageState extends State<AddItemPage> {
                                       flex: 2,
                                       child: GestureDetector(
                                         onTap: () async {
-                                          final DateTime? picked = await showDatePicker(
-                                            context: context,
-                                            initialDate: hasDetail && detail != null && detail['expire_date'] != null
-                                                ? detail['expire_date']
-                                                : _selected_date,
-                                            firstDate: DateTime(2000),
-                                            lastDate: DateTime(2101),
-                                          );
-                                          if (picked != null) {
-                                            _update_expire_date(index, picked);
-                                          }
+                                          final currentDate = hasDetail && detail != null && detail['expire_date'] != null
+                                              ? detail['expire_date']
+                                              : _selected_date;
+                                          await _show_individual_expire_date_picker(index, currentDate);
                                         },
                                         child: Container(
                                           height: 40,
@@ -2795,7 +2832,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                                   hasDetail && detail != null && detail['expire_date'] != null
                                                       ? _format_date(detail['expire_date'])
                                                       : _format_date(_selected_date),
-                                                  style: const TextStyle(fontSize: 12), // ลดขนาดฟอนต์
+                                                  style: const TextStyle(fontSize: 16), // เพิ่มขนาดฟอนต์
                                                 ),
                                               ),
                                             ],
@@ -2811,7 +2848,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                   Text(
                                     'พื้นที่จัดเก็บ:',
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 16,
                                       fontWeight: FontWeight.w500,
                                       color: Colors.grey[700],
                                     ),
@@ -2850,7 +2887,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                         value: location['area_name'],
                                         child: Text(
                                           location['area_name'],
-                                          style: const TextStyle(fontSize: 13),
+                                          style: const TextStyle(fontSize: 16),
                                         ),
                                       );
                                     }).toList(),
@@ -2894,29 +2931,7 @@ class _AddItemPageState extends State<AddItemPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               flex: 2,
-                              child: GestureDetector(
-                                onTap: _select_date,
-                                child: Container(
-                                  height: 48,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: Colors.grey[300]!),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _format_date(_selected_date),
-                                          style: const TextStyle(fontSize: 16),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                              child: _build_date_dropdown(),
                             ),
                           ],
                         ),
@@ -2929,7 +2944,7 @@ class _AddItemPageState extends State<AddItemPage> {
                               child: _build_dropdown(
                                 value: _units.contains(_selected_unit) ? _selected_unit : 'วันหมดอายุ(EXP)',
                                 items: _units,
-                                fontSize: 12, // ฟอนต์เล็กกว่า
+                                fontSize: 16, 
                                 onChanged: (value) {
                                   setState(() {
                                     _selected_unit = value!;
@@ -2940,29 +2955,7 @@ class _AddItemPageState extends State<AddItemPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               flex: 2,
-                              child: GestureDetector(
-                                onTap: _select_date,
-                                child: Container(
-                                  height: 48,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: Colors.grey[300]!),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _format_date(_selected_date),
-                                          style: const TextStyle(fontSize: 12), // ลดขนาดฟอนต์
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                              child: _build_date_dropdown(),
                             ),
                           ],
                         ),
@@ -3362,7 +3355,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                           hintText: 'เลือกพื้นที่จัดเก็บ',
                                           hintStyle: TextStyle(
                                             color: Colors.grey[600],
-                                            fontSize: 12,
+                                            fontSize: 14,
                                           ),
                                           border: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(6),
@@ -3378,22 +3371,94 @@ class _AddItemPageState extends State<AddItemPage> {
                                           ),
                                           filled: true,
                                           fillColor: Colors.white,
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                                         ),
-                                        items: _storage_locations
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.black87,
+                                        ),
+                                        dropdownColor: Colors.white,
+                                        menuMaxHeight: 400,
+                                        itemHeight: 56,
+                                        items: [
+                                          // แสดงตัวเลือกเพิ่มพื้นที่ใหม่เฉพาะเมื่อยังไม่ได้เลือกพื้นที่ที่เฉพาะเจาะจง
+                                          if (_selected_storage == 'เลือกพื้นที่จัดเก็บ' || _selected_storage.isEmpty)
+                                            const DropdownMenuItem<String>(
+                                              value: '__ADD_NEW_AREA__',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.add_circle_outline, color: Color(0xFF4A90E2), size: 16),
+                                                  SizedBox(width: 8),
+                                                  Text(
+                                                    'เพิ่มพื้นที่ใหม่',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Color(0xFF4A90E2),
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                          ),
+                                          // พื้นที่ที่มีอยู่ - แยกระหว่างพื้นที่ระบบและพื้นที่ที่ผู้ใช้เพิ่ม
+                                          ..._storage_locations
                                             .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
+                                                           loc['user_id'] != _current_user_id) // พื้นที่ระบบก่อน
                                             .map((loc) {
                                           return DropdownMenuItem<String>(
                                             value: loc['area_name'],
                                             child: Text(
                                               loc['area_name'],
-                                              style: const TextStyle(fontSize: 12),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black87,
+                                              ),
                                             ),
                                           );
-                                        }).toList(),
-                                        onChanged: (newValue) {
-                                          if (newValue != null) {
+                                        }),
+                                          // พื้นที่ที่ผู้ใช้เพิ่มเอง (ท้ายสุด พร้อมไอคอนลบ)
+                                          ..._storage_locations
+                                            .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
+                                                           loc['user_id'] == _current_user_id) // พื้นที่ที่ผู้ใช้เพิ่มเอง
+                                            .map((loc) {
+                                          return DropdownMenuItem<String>(
+                                            value: loc['area_name'],
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  loc['area_name'],
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    color: Colors.black87,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                GestureDetector(
+                                                  onTap: () {
+                                                    Navigator.pop(context); // ปิด dropdown ก่อน
+                                                    _confirm_delete_storage_dialog(loc['area_name']);
+                                                  },
+                                                  child: Icon(
+                                                    Icons.delete_outline,
+                                                    size: 16,
+                                                    color: Colors.red[600],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        })],
+                                        onChanged: (newValue) async {
+                                          if (newValue == '__ADD_NEW_AREA__') {
+                                            // เรียกฟังก์ชันเพิ่มพื้นที่ใหม่
+                                            await _show_add_storage_dialog();
+                                            // หลังจากเพิ่มพื้นที่ใหม่แล้ว ค่า _selected_storage จะถูกอัปเดตแล้วใน _add_new_storage_location
+                                            // ต้อง rebuild widget เพื่อแสดงพื้นที่ที่เลือกใหม่
+                                            setState(() {});
+                                          } else if (newValue != null) {
                                             try {
                                               final selectedLocation = _storage_locations.firstWhere(
                                                 (loc) => loc['area_name'] == newValue,
@@ -3532,26 +3597,101 @@ class _AddItemPageState extends State<AddItemPage> {
                                                     ),
                                                     filled: true,
                                                     fillColor: Colors.white,
-                                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
                                                   ),
                                                   style: const TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w500,
+                                                    fontSize: 14,
+                                                    color: Colors.black87,
                                                   ),
-                                                  items: _storage_locations
+                                                  dropdownColor: Colors.white,
+                                                  menuMaxHeight: 400,
+                                                  itemHeight: 56,
+                                                  items: [
+                                                    // แสดงตัวเลือกเพิ่มพื้นที่ใหม่เสมอในสรุปการกระจาย
+                                                    const DropdownMenuItem<String>(
+                                                      value: '__ADD_NEW_AREA__',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(Icons.add_circle_outline, color: Color(0xFF4A90E2), size: 14),
+                                                          SizedBox(width: 6),
+                                                          Text(
+                                                            'เพิ่มพื้นที่ใหม่',
+                                                            style: TextStyle(
+                                                              fontSize: 12,
+                                                              color: Color(0xFF4A90E2),
+                                                              fontWeight: FontWeight.w600,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    // พื้นที่ที่มีอยู่ - แยกระหว่างพื้นที่ระบบและพื้นที่ที่ผู้ใช้เพิ่ม
+                                                    ..._storage_locations
                                                       .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
+                                                                     loc['user_id'] != _current_user_id) // พื้นที่ระบบก่อน
                                                       .map((loc) {
                                                     return DropdownMenuItem<String>(
                                                       value: loc['area_name'],
                                                       child: Text(
                                                         loc['area_name'],
-                                                        style: const TextStyle(fontSize: 12),
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.black87,
+                                                        ),
                                                       ),
                                                     );
-                                                  }).toList(),
-                                                  onChanged: (newValue) {
-                                                    if (newValue != null) {
+                                                  }),
+                                                    // พื้นที่ที่ผู้ใช้เพิ่มเอง (ท้ายสุด พร้อมไอคอนลบ)
+                                                    ..._storage_locations
+                                                      .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
+                                                                     loc['user_id'] == _current_user_id) // พื้นที่ที่ผู้ใช้เพิ่มเอง
+                                                      .map((loc) {
+                                                    return DropdownMenuItem<String>(
+                                                      value: loc['area_name'],
+                                                      child: Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Text(
+                                                            loc['area_name'],
+                                                            style: const TextStyle(
+                                                              fontSize: 14,
+                                                              color: Colors.black87,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          GestureDetector(
+                                                            onTap: () {
+                                                              Navigator.pop(context); // ปิด dropdown ก่อน
+                                                              _confirm_delete_storage_dialog(loc['area_name']);
+                                                            },
+                                                            child: Icon(
+                                                              Icons.delete_outline,
+                                                              size: 16,
+                                                              color: Colors.red[600],
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  })],
+                                                  onChanged: (newValue) async {
+                                                    if (newValue == '__ADD_NEW_AREA__') {
+                                                      // เรียกฟังก์ชันเพิ่มพื้นที่ใหม่
+                                                      await _show_add_storage_dialog();
+                                                      // อัปเดตพื้นที่ที่เลือกใหม่ในรายการ preview
+                                                      if (_selected_storage != 'เลือกพื้นที่จัดเก็บ') {
+                                                        final selectedLocation = _storage_locations.firstWhere(
+                                                          (loc) => loc['area_name'] == _selected_storage,
+                                                          orElse: () => {'area_name': _selected_storage, 'area_id': null}
+                                                        );
+                                                        setState(() {
+                                                          item['area_name'] = _selected_storage;
+                                                          item['area_id'] = selectedLocation['area_id'];
+                                                        });
+                                                      }
+                                                    } else if (newValue != null) {
                                                       try {
                                                         final selectedLocation = _storage_locations.firstWhere(
                                                           (loc) => loc['area_name'] == newValue,
@@ -3599,6 +3739,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                                   style: const TextStyle(
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.w500,
+                                                    color: Colors.black87, // เพิ่มสีตัวอักษรให้ชัดเจน
                                                   ),
                                                 ),
                                                 Text(
@@ -3926,7 +4067,10 @@ class _AddItemPageState extends State<AddItemPage> {
                                             value: loc['area_name'],
                                             child: Text(
                                               loc['area_name'],
-                                              style: const TextStyle(fontSize: 14),
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.black87, // เพิ่มสีตัวอักษร
+                                              ),
                                             ),
                                           );
                                         }).toList(),
@@ -4203,7 +4347,7 @@ class _AddItemPageState extends State<AddItemPage> {
                           const Expanded(
                             child: Text(
                               'แจ้งเตือนอีก',
-                              style: TextStyle(fontSize: 16),
+                              style: TextStyle(fontSize: 20),
                             ),
                           ),
                           Container(
@@ -4236,7 +4380,7 @@ class _AddItemPageState extends State<AddItemPage> {
                           const SizedBox(width: 8),
                           const Text(
                             'วันก่อนหมดอายุ',
-                            style: TextStyle(fontSize: 16),
+                            style: TextStyle(fontSize: 20),
                           ),
                         ],
                       ),
@@ -4299,7 +4443,7 @@ class _AddItemPageState extends State<AddItemPage> {
     return Text(
       title,
       style: const TextStyle(
-        fontSize: 16,
+        fontSize: 20, // เพิ่มจาก 16 เป็น 20
         fontWeight: FontWeight.w600,
         color: Colors.black87,
       ),
@@ -4315,8 +4459,10 @@ class _AddItemPageState extends State<AddItemPage> {
   }) {
     return TextFormField(
       controller: controller,
+      style: const TextStyle(fontSize: 18), // เพิ่มขนาดฟอนต์
       decoration: InputDecoration(
         hintText: hint,
+        hintStyle: const TextStyle(fontSize: 18), // เพิ่มขนาดฟอนต์ hint
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -4331,7 +4477,7 @@ class _AddItemPageState extends State<AddItemPage> {
         ),
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16), // เพิ่ม vertical padding
         suffixIcon: suffix_icon != null
             ? IconButton(
                 icon: Icon(suffix_icon, color: Colors.grey),
@@ -4378,7 +4524,11 @@ class _AddItemPageState extends State<AddItemPage> {
         ),
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), // ลด padding
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), // เพิ่ม vertical padding
+      ),
+      style: TextStyle(
+        fontSize: fontSize ?? 18,
+        color: Colors.black87, // เพิ่มสีตัวอักษรหลักของ dropdown
       ),
       items: items.map((String item) {
         return DropdownMenuItem<String>(
@@ -4386,7 +4536,7 @@ class _AddItemPageState extends State<AddItemPage> {
           child: Text(
             item,
             style: TextStyle(
-              fontSize: fontSize ?? 14, // ใช้ขนาดฟอนต์ที่กำหนด
+              fontSize: fontSize ?? 18, // เพิ่มขนาดฟอนต์เริ่มต้น
               color: item.startsWith('เลือก')
                   ? Colors.grey[400]
                   : (item.startsWith('เพิ่ม') ? const Color(0xFF4A90E2) : Colors.black87),
@@ -4405,5 +4555,642 @@ class _AddItemPageState extends State<AddItemPage> {
         return null;
       },
     );
+  }
+
+  // Build date dropdown widget
+  Widget _build_date_dropdown() {
+    return GestureDetector(
+      onTap: _show_date_picker_popup,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _format_date_display(_selected_date),
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Format date for display (showing Christian year)
+  String _format_date_display(DateTime date) {
+    String day = date.day.toString().padLeft(2, '0');
+    String month = date.month.toString().padLeft(2, '0');
+    return "$day/$month/${date.year}"; // Show in DD/MM/YYYY format
+  }
+
+  // Show date picker popup
+  Future<void> _show_date_picker_popup() async {
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        int tempDay = _selected_day;
+        int tempMonth = _selected_month;
+        int tempYear = _selected_year;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('เลือกวันที่', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        // Day dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              const Text('วัน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempDay,
+                                    isExpanded: true,
+                                    items: _get_days_in_month_for_year_month(tempYear, tempMonth).map((day) {
+                                      return DropdownMenuItem<int>(
+                                        value: day,
+                                        child: Text('$day', style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newDay) {
+                                      if (newDay != null) {
+                                        setDialogState(() {
+                                          tempDay = newDay;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Month dropdown
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            children: [
+                              const Text('เดือน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempMonth,
+                                    isExpanded: true,
+                                    items: _get_months().map((month) {
+                                      return DropdownMenuItem<int>(
+                                        value: month['value'],
+                                        child: Text(month['name'], style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newMonth) {
+                                      if (newMonth != null) {
+                                        setDialogState(() {
+                                          tempMonth = newMonth;
+                                          // Check if current day is valid for new month
+                                          int daysInMonth = DateTime(tempYear, newMonth + 1, 0).day;
+                                          if (tempDay > daysInMonth) {
+                                            tempDay = daysInMonth;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Year dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              const Text('ปี (ค.ศ.)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempYear,
+                                    isExpanded: true,
+                                    items: _get_years().map((year) {
+                                      return DropdownMenuItem<int>(
+                                        value: year,
+                                        child: Text('$year', style: const TextStyle(fontSize: 14)), // Show Christian year
+                                      );
+                                    }).toList(),
+                                    onChanged: (newYear) {
+                                      if (newYear != null) {
+                                        setDialogState(() {
+                                          tempYear = newYear;
+                                          // Check if current day is valid for new month/year
+                                          int daysInMonth = DateTime(newYear, tempMonth + 1, 0).day;
+                                          if (tempDay > daysInMonth) {
+                                            tempDay = daysInMonth;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    // Preview selected date
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 16, color: Colors.blue.shade600),
+                          const SizedBox(width: 8),
+                          Text(
+                            'วันที่เลือก: ${tempDay.toString().padLeft(2, '0')}/${tempMonth.toString().padLeft(2, '0')}/${tempYear}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.blue.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _selected_day = tempDay;
+                      _selected_month = tempMonth;
+                      _selected_year = tempYear;
+                      _update_selected_date();
+                    });
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('ตกลง'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Helper function to get days in specific month/year
+  List<int> _get_days_in_month_for_year_month(int year, int month) {
+    int daysInMonth = DateTime(year, month + 1, 0).day;
+    return List.generate(daysInMonth, (index) => index + 1);
+  }
+
+  // Show date picker popup for expire group
+  Future<void> _show_expire_group_date_picker(int groupIndex, DateTime currentDate) async {
+    int tempDay = currentDate.day;
+    int tempMonth = currentDate.month;
+    int tempYear = currentDate.year;
+
+    final DateTime? result = await showDialog<DateTime>(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('เลือกวันหมดอายุ - กลุ่มที่ ${groupIndex + 1}', 
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        // Day dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              const Text('วัน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempDay,
+                                    isExpanded: true,
+                                    items: _get_days_in_month_for_year_month(tempYear, tempMonth).map((day) {
+                                      return DropdownMenuItem<int>(
+                                        value: day,
+                                        child: Text('$day', style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newDay) {
+                                      if (newDay != null) {
+                                        setDialogState(() {
+                                          tempDay = newDay;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Month dropdown
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            children: [
+                              const Text('เดือน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempMonth,
+                                    isExpanded: true,
+                                    items: _get_months().map((month) {
+                                      return DropdownMenuItem<int>(
+                                        value: month['value'],
+                                        child: Text(month['name'], style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newMonth) {
+                                      if (newMonth != null) {
+                                        setDialogState(() {
+                                          tempMonth = newMonth;
+                                          // Check if current day is valid for new month
+                                          int daysInMonth = DateTime(tempYear, newMonth + 1, 0).day;
+                                          if (tempDay > daysInMonth) {
+                                            tempDay = daysInMonth;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Year dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              const Text('ปี (ค.ศ.)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempYear,
+                                    isExpanded: true,
+                                    items: _get_years().map((year) {
+                                      return DropdownMenuItem<int>(
+                                        value: year,
+                                        child: Text('$year', style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newYear) {
+                                      if (newYear != null) {
+                                        setDialogState(() {
+                                          tempYear = newYear;
+                                          // Check if current day is valid for new month/year
+                                          int daysInMonth = DateTime(newYear, tempMonth + 1, 0).day;
+                                          if (tempDay > daysInMonth) {
+                                            tempDay = daysInMonth;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    // Preview selected date
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 16, color: Colors.orange.shade600),
+                          const SizedBox(width: 8),
+                          Text(
+                            'วันที่เลือก: ${tempDay.toString().padLeft(2, '0')}/${tempMonth.toString().padLeft(2, '0')}/${tempYear}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.orange.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final selectedDate = DateTime(tempYear, tempMonth, tempDay);
+                    Navigator.of(context).pop(selectedDate);
+                  },
+                  child: const Text('ตกลง'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      _update_expire_group_date(groupIndex, result);
+    }
+  }
+
+  // Show date picker popup for individual item expire date
+  Future<void> _show_individual_expire_date_picker(int itemIndex, DateTime currentDate) async {
+    int tempDay = currentDate.day;
+    int tempMonth = currentDate.month;
+    int tempYear = currentDate.year;
+
+    final DateTime? result = await showDialog<DateTime>(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('เลือกวันหมดอายุ - ชิ้นที่ ${itemIndex + 1}', 
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        // Day dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              const Text('วัน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempDay,
+                                    isExpanded: true,
+                                    items: _get_days_in_month_for_year_month(tempYear, tempMonth).map((day) {
+                                      return DropdownMenuItem<int>(
+                                        value: day,
+                                        child: Text('$day', style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newDay) {
+                                      if (newDay != null) {
+                                        setDialogState(() {
+                                          tempDay = newDay;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Month dropdown
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            children: [
+                              const Text('เดือน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempMonth,
+                                    isExpanded: true,
+                                    items: _get_months().map((month) {
+                                      return DropdownMenuItem<int>(
+                                        value: month['value'],
+                                        child: Text(month['name'], style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newMonth) {
+                                      if (newMonth != null) {
+                                        setDialogState(() {
+                                          tempMonth = newMonth;
+                                          // Check if current day is valid for new month
+                                          int daysInMonth = DateTime(tempYear, newMonth + 1, 0).day;
+                                          if (tempDay > daysInMonth) {
+                                            tempDay = daysInMonth;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Year dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              const Text('ปี (ค.ศ.)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 48,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: tempYear,
+                                    isExpanded: true,
+                                    items: _get_years().map((year) {
+                                      return DropdownMenuItem<int>(
+                                        value: year,
+                                        child: Text('$year', style: const TextStyle(fontSize: 14)),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newYear) {
+                                      if (newYear != null) {
+                                        setDialogState(() {
+                                          tempYear = newYear;
+                                          // Check if current day is valid for new month/year
+                                          int daysInMonth = DateTime(newYear, tempMonth + 1, 0).day;
+                                          if (tempDay > daysInMonth) {
+                                            tempDay = daysInMonth;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    // Preview selected date
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 16, color: Colors.green.shade600),
+                          const SizedBox(width: 8),
+                          Text(
+                            'วันที่เลือก: ${tempDay.toString().padLeft(2, '0')}/${tempMonth.toString().padLeft(2, '0')}/${tempYear}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final selectedDate = DateTime(tempYear, tempMonth, tempDay);
+                    Navigator.of(context).pop(selectedDate);
+                  },
+                  child: const Text('ตกลง'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      _update_expire_date(itemIndex, result);
+    }
   }
 }

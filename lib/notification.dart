@@ -269,16 +269,23 @@ class _NotificationPageState extends State<NotificationPage> {
     _sentNotifications.removeWhere((key) {
       try {
         final parts = key.split('_');
+        String? dateStr;
         if (parts.length == 2) {
-          final dateParts = parts[1].split('-');
-          if (dateParts.length == 3) {
-            final notificationDate = DateTime(
-              int.parse(dateParts[0]), // year
-              int.parse(dateParts[1]), // month
-              int.parse(dateParts[2]), // day
-            );
-            return notificationDate.isBefore(cutoffDate);
-          }
+          dateStr = parts[1];
+        } else if (parts.length == 3) {
+          dateStr = parts[2];
+        } else {
+          // ถ้า format ไม่ตรง ให้ลบออก
+          return true;
+        }
+        final dateParts = dateStr.split('-');
+        if (dateParts.length == 3) {
+          final notificationDate = DateTime(
+            int.parse(dateParts[0]), // year
+            int.parse(dateParts[1]), // month
+            int.parse(dateParts[2]), // day
+          );
+          return notificationDate.isBefore(cutoffDate);
         }
         return false;
       } catch (e) {
@@ -368,7 +375,17 @@ class _NotificationPageState extends State<NotificationPage> {
                 _scheduleIndividualNotification(item, detail, index, notifyDate, daysLeft);
                 
                 // เช็คว่าควรแสดงการแจ้งเตือนหรือไม่
-                if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
+                // แสดงการแจ้งเตือนถ้า: 1) ถึงเวลาแจ้งเตือนแล้ว หรือ 2) หมดอายุแล้ว (ไม่จำกัดจำนวนวัน)
+                bool shouldShowNotification = false;
+                if (daysLeft >= 0) {
+                  // ยังไม่หมดอายุ - แสดงถ้าถึงเวลาแจ้งเตือนแล้ว
+                  shouldShowNotification = now.isAfter(notifyDate);
+                } else {
+                  // หมดอายุแล้ว - แสดงเรื่อยๆ จนกว่าจะเปลี่ยนสถานะ
+                  shouldShowNotification = true;
+                }
+                
+                if (shouldShowNotification) {
                   // ตรวจสอบประเภทวันที่ (EXP หรือ BBF)
                   final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
                   final isBBF = dateType == 'BBF';
@@ -379,12 +396,12 @@ class _NotificationPageState extends State<NotificationPage> {
                   
                   if (isBBF) {
                     description = daysLeft < 0
-                        ? 'เลยวันควรบริโภคแล้ว (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
+                        ? 'เลยวันควรบริโภคแล้ว ${(-daysLeft)} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
                         : 'ควรบริโภคในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})';
                     dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
                   } else {
                     description = daysLeft < 0
-                        ? 'หมดอายุแล้ว (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
+                        ? 'หมดอายุแล้ว ${(-daysLeft)} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
                         : 'จะหมดอายุในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})';
                     dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
                   }
@@ -426,7 +443,17 @@ class _NotificationPageState extends State<NotificationPage> {
               _scheduleNotification(item, notifyDate, daysLeft);
               
               // เช็คว่าควรแสดงการแจ้งเตือนหรือไม่
-              if (now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)))) {
+              // แสดงการแจ้งเตือนถ้า: 1) ถึงเวลาแจ้งเตือนแล้ว หรือ 2) หมดอายุแล้ว (ไม่จำกัดจำนวนวัน)
+              bool shouldShowNotification = false;
+              if (daysLeft >= 0) {
+                // ยังไม่หมดอายุ - แสดงถ้าถึงเวลาแจ้งเตือนแล้ว
+                shouldShowNotification = now.isAfter(notifyDate);
+              } else {
+                // หมดอายุแล้ว - แสดงเรื่อยๆ จนกว่าจะเปลี่ยนสถานะ
+                shouldShowNotification = true;
+              }
+              
+              if (shouldShowNotification) {
                 // ตรวจสอบประเภทวันที่ (EXP หรือ BBF)
                 final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
                 final isBBF = dateType == 'BBF';
@@ -436,12 +463,12 @@ class _NotificationPageState extends State<NotificationPage> {
                 
                 if (isBBF) {
                   description = daysLeft < 0
-                      ? 'เลยวันควรบริโภคแล้ว'
+                      ? 'เลยวันควรบริโภคแล้ว ${(-daysLeft)} วัน'
                       : 'ควรบริโภคในอีก ${daysLeft} วัน';
                   dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
                 } else {
                   description = daysLeft < 0
-                      ? 'หมดอายุแล้ว'
+                      ? 'หมดอายุแล้ว ${(-daysLeft)} วัน'
                       : 'จะหมดอายุในอีก ${daysLeft} วัน';
                   dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
                 }
@@ -511,11 +538,11 @@ class _NotificationPageState extends State<NotificationPage> {
     
     if (isBBF) {
       message = daysLeft < 0
-          ? '${item['item_name']} เลยวันควรบริโภคแล้ว'
+          ? '${item['item_name']} เลยวันควรบริโภคแล้ว ${(-daysLeft)} วัน'
           : '${item['item_name']} ควรบริโภคในอีก $daysLeft วัน';
     } else {
       message = daysLeft < 0
-          ? '${item['item_name']} หมดอายุแล้ว'
+          ? '${item['item_name']} หมดอายุแล้ว ${(-daysLeft)} วัน'
           : '${item['item_name']} จะหมดอายุในอีก $daysLeft วัน';
     }
     
@@ -607,11 +634,11 @@ class _NotificationPageState extends State<NotificationPage> {
     
     if (isBBF) {
       message = daysLeft < 0
-          ? '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) เลยวันควรบริโภคแล้ว'
+          ? '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) เลยวันควรบริโภคแล้ว ${(-daysLeft)} วัน'
           : '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) ควรบริโภคในอีก $daysLeft วัน';
     } else {
       message = daysLeft < 0
-          ? '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) หมดอายุแล้ว'
+          ? '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) หมดอายุแล้ว ${(-daysLeft)} วัน'
           : '${item['item_name']} (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) จะหมดอายุในอีก $daysLeft วัน';
     }
     
@@ -641,9 +668,7 @@ class _NotificationPageState extends State<NotificationPage> {
         // ข้อผิดพลาดในการแสดงการแจ้งเตือน
       }
     } else {
-      // ถ้ายังไม่ถึงเวลา ให้ตั้งเวลาแจ้งเตือน
       try {
-        // ตั้งเวลาแจ้งเตือนในวันที่กำหนด เวลา 09:00 + index นาที เพื่อไม่ให้ซ้อนกัน
         final scheduledDate = DateTime(
           notifyDate.year,
           notifyDate.month,
@@ -679,7 +704,7 @@ class _NotificationPageState extends State<NotificationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Colors.grey[50], 
       appBar: AppBar(
         title: const Text(''),
       ),
@@ -708,7 +733,7 @@ class _NotificationPageState extends State<NotificationPage> {
           Icon(
             Icons.notifications_outlined,
             size: 80,
-            color: Color.fromARGB(255, 0, 0, 0),
+            color: Colors.grey,
           ),
           SizedBox(height: 16),
           Text(
@@ -716,7 +741,7 @@ class _NotificationPageState extends State<NotificationPage> {
             style: TextStyle(
               fontSize: 24, // เพิ่มจาก 18 เป็น 24
               fontWeight: FontWeight.w500,
-              color: Color.fromARGB(255, 0, 0, 0),
+              color: Colors.black87,
             ),
           ),
           SizedBox(height: 8),
@@ -724,7 +749,7 @@ class _NotificationPageState extends State<NotificationPage> {
             'การแจ้งเตือนจะแสดงที่นี่',
             style: TextStyle(
               fontSize: 18, // เพิ่มจาก 14 เป็น 18
-              color: Color.fromARGB(255, 0, 0, 0),
+              color: Colors.grey,
             ),
           ),
         ],
@@ -732,29 +757,17 @@ class _NotificationPageState extends State<NotificationPage> {
     );
   }
 
-  // สร้างส่วนการแจ้งเตือนตามประเภท
+  // สร้างส่วนการแจ้งเตือนแบบรวม
   List<Widget> _build_notification_sections() {
-    final today_notifications = _notifications.where((n) => n['type'] == 'today').toList();
-    final stored_notifications = _notifications.where((n) => n['type'] == 'stored').toList();
+    // รวมการแจ้งเตือนทั้งหมดเข้าด้วยกัน
+    final all_notifications = _notifications.toList();
 
     List<Widget> sections = [];
 
-    // ส่วนวันนี้
-    if (today_notifications.isNotEmpty) {
-      sections.add(_build_section_header('วันนี้'));
+    // แสดงการแจ้งเตือนทั้งหมดโดยไม่มีหัวข้อ
+    if (all_notifications.isNotEmpty) {
       sections.addAll(
-        today_notifications.map((notification) => 
-          _build_notification_card(notification)
-        ).toList(),
-      );
-      sections.add(const SizedBox(height: 24));
-    }
-
-    // ส่วนสิ่งของที่เก็บ
-    if (stored_notifications.isNotEmpty) {
-      sections.add(_build_section_header('สิ่งของที่เก็บ'));
-      sections.addAll(
-        stored_notifications.map((notification) => 
+        all_notifications.map((notification) => 
           _build_notification_card(notification)
         ).toList(),
       );
@@ -763,38 +776,23 @@ class _NotificationPageState extends State<NotificationPage> {
     return sections;
   }
 
-  // Widget หัวข้อส่วน
-  Widget _build_section_header(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 20, // เพิ่มจาก 16 เป็น 20
-          fontWeight: FontWeight.w600,
-          color: Colors.black87,
-        ),
-      ),
-    );
-  }
-
   // Widget การ์ดการแจ้งเตือน
   Widget _build_notification_card(Map<String, dynamic> notification) {
     final is_expired = notification['is_expired'] as bool;
     final is_bbf = notification['is_bbf'] as bool? ?? false;
     
-    // กำหนดสีและไอคอนตามประเภท
+    // กำหนดสีพาสเทลและไอคอนตามประเภท
     Color statusColor;
     Color backgroundColor;
     IconData statusIcon;
     
     if (is_expired) {
-      statusColor = is_bbf ? Colors.deepOrange : Colors.red;
-      backgroundColor = is_bbf ? Colors.deepOrange.withOpacity(0.1) : Colors.red.withOpacity(0.1);
-      statusIcon = is_bbf ? Icons.schedule_outlined : Icons.error_outline;
+      statusColor = Colors.red; // เปลี่ยนเป็นสีแดงชัดเจนสำหรับหมดอายุ
+      backgroundColor = is_bbf ? const Color(0xFFFFF5F0) : const Color(0xFFFFF0F5); // พื้นหลังสีครีมอ่อน
+      statusIcon = is_bbf ? Icons.schedule : Icons.error; // เปลี่ยนเป็นไอคอนแบบเต็ม
     } else {
-      statusColor = is_bbf ? Colors.amber : Colors.orange;
-      backgroundColor = is_bbf ? Colors.amber.withOpacity(0.1) : Colors.orange.withOpacity(0.1);
+      statusColor = is_bbf ? const Color(0xFFD4A574) : const Color(0xFFDDA0DD); // สีทองพาสเทลและม่วงพาสเทล
+      backgroundColor = is_bbf ? const Color(0xFFFFFAF0) : const Color(0xFFF8F4FF); // พื้นหลังสีครีมและม่วงอ่อน
       statusIcon = is_bbf ? Icons.schedule_outlined : Icons.warning_outlined;
     }
     
@@ -864,16 +862,29 @@ class _NotificationPageState extends State<NotificationPage> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFF3E8FF), // ม่วงอ่อน
+              Color(0xFFE9D5FF), // ม่วงกลาง
+              Color(0xFFDDD6FE), // ม่วงไวโอเล็ต
+            ],
+          ),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: const Color.fromARGB(255, 204, 222, 255).withOpacity(0.7),
-            width: 5,
+            color: const Color(0xFFE9D5FF).withOpacity(0.7), // ม่วงพาสเทลอ่อน
+            width: 3,
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFFF3E8FF).withOpacity(0.5),
-              blurRadius: 8,
+              color: const Color(0xFFF3E8FF).withOpacity(0.8), // เงาสีม่วงพาสเทลอ่อน
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: const Color(0xFFDDD6FE).withOpacity(0.3), // เงาเพิ่มเติมสีไวโอเล็ต
+              blurRadius: 6,
               offset: const Offset(0, 2),
             ),
           ],
@@ -908,7 +919,7 @@ class _NotificationPageState extends State<NotificationPage> {
                     style: const TextStyle(
                       fontSize: 20, // เพิ่มจาก 16 เป็น 20
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: Colors.black87, // เปลี่ยนเป็นสีดำเพื่อความชัดเจน
                     ),
                   ),
                   
@@ -941,7 +952,7 @@ class _NotificationPageState extends State<NotificationPage> {
                             'จัดเก็บ: $locations',
                             style: const TextStyle(
                               fontSize: 14, // เพิ่มจาก 12 เป็น 14
-                              color: Color.fromARGB(255, 0, 0, 0),
+                              color: Colors.black87, // เปลี่ยนเป็นสีดำเพื่อความชัดเจน
                             ),
                           );
                         } else {
@@ -949,7 +960,7 @@ class _NotificationPageState extends State<NotificationPage> {
                             'จัดเก็บ: ${item_data['storage_location'] ?? item_data['area_name'] ?? 'ไม่ระบุ'}',
                             style: const TextStyle(
                               fontSize: 14, // เพิ่มจาก 12 เป็น 14
-                              color: Color.fromARGB(255, 0, 0, 0),
+                              color: Colors.black87, // เปลี่ยนเป็นสีดำเพื่อความชัดเจน
                             ),
                           );
                         }
@@ -963,7 +974,7 @@ class _NotificationPageState extends State<NotificationPage> {
                     notification['date'],
                     style: const TextStyle(
                       fontSize: 14, // เพิ่มจาก 12 เป็น 14
-                      color: Color.fromARGB(255, 0, 0, 0),
+                      color: Colors.black87, // เปลี่ยนเป็นสีดำเพื่อความชัดเจน
                     ),
                   ),
                 ],

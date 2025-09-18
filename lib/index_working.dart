@@ -103,6 +103,11 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
             }
           }
 
+          // ลบการจัดเรียงข้อมูลออก เพราะให้ Backend จัดการแล้ว
+          // if (filters != null && filters.containsKey('sort_order')) {
+          //   ... (โค้ดเรียงลำดับที่ลบออก)
+          // }
+
           setState(() {
             _stored_items = List<Map<String, dynamic>>.from(filteredItems);
             _is_loading = false;
@@ -147,10 +152,69 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
     }
   }
 
+  // ฟังก์ชันสำหรับเรียงลำดับกลุ่มสิ่งของตาม sort_order
+  void _sortItemGroup(List<Map<String, dynamic>> items) {
+    final sortOrder = _current_filters['sort_order']?.toString();
+    
+    if (sortOrder == 'ชื่อ (ก-ฮ)') {
+      items.sort((a, b) {
+        final nameA = (a['item_name'] ?? '').toString();
+        final nameB = (b['item_name'] ?? '').toString();
+        return nameA.compareTo(nameB);
+      });
+    } else if (sortOrder == 'ชื่อ (ฮ-ก)') {
+      items.sort((a, b) {
+        final nameA = (a['item_name'] ?? '').toString();
+        final nameB = (b['item_name'] ?? '').toString();
+        return nameB.compareTo(nameA);
+      });
+    } else if (sortOrder == 'วันหมดอายุ (เร็วที่สุด)') {
+      items.sort((a, b) {
+        final expireDateA = a['earliest_expire_date'] ?? a['item_date'] ?? '';
+        final expireDateB = b['earliest_expire_date'] ?? b['item_date'] ?? '';
+        final daysA = _calculate_days_left(expireDateA.toString());
+        final daysB = _calculate_days_left(expireDateB.toString());
+        return daysA.compareTo(daysB);
+      });
+    } else if (sortOrder == 'วันหมดอายุ (ช้าที่สุด)') {
+      items.sort((a, b) {
+        final expireDateA = a['earliest_expire_date'] ?? a['item_date'] ?? '';
+        final expireDateB = b['earliest_expire_date'] ?? b['item_date'] ?? '';
+        final daysA = _calculate_days_left(expireDateA.toString());
+        final daysB = _calculate_days_left(expireDateB.toString());
+        return daysB.compareTo(daysA);
+      });
+    } else {
+      // Default: เรียงตามวันหมดอายุ (เร็วที่สุด)
+      items.sort((a, b) {
+        final expireDateA = a['earliest_expire_date'] ?? a['item_date'] ?? '';
+        final expireDateB = b['earliest_expire_date'] ?? b['item_date'] ?? '';
+        final daysA = _calculate_days_left(expireDateA.toString());
+        final daysB = _calculate_days_left(expireDateB.toString());
+        return daysA.compareTo(daysB);
+      });
+    }
+  }
+
   // ฟังก์ชันสำหรับจัดกลุ่มสิ่งของและเพิ่มหัวข้อ
   List<Map<String, dynamic>> _getItemsWithHeaders() {
     List<Map<String, dynamic>> result = [];
     
+    // ตรวจสอบว่ามีการใช้ตัวกรองหรือไม่ (ยกเว้น item_status ที่เป็น default)
+    bool hasActiveFilter = _current_filters.keys.any((key) => 
+      key != 'item_status' && _current_filters[key] != null && _current_filters[key].toString().isNotEmpty
+    );
+    
+    // หากมีการใช้ตัวกรอง ให้แสดงทั้งหมดโดยไม่แยกกลุ่ม
+    if (hasActiveFilter) {
+      _sortItemGroup(_stored_items);
+      for (var item in _stored_items) {
+        result.add({'isHeader': false, 'item': item});
+      }
+      return result;
+    }
+    
+    // หากไม่มีการกรอง ให้แยกกลุ่มตามปกติ
     // แยกสิ่งของตามสถานะ
     List<Map<String, dynamic>> expiredItems = [];
     List<Map<String, dynamic>> expiringSoon7Items = []; // <= 7 วัน
@@ -169,48 +233,28 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
       }
     }
     
-    // จัดเรียงแต่ละกลุ่มตามวันหมดอายุ
-    expiredItems.sort((a, b) {
-      final expireDateA = a['earliest_expire_date'] ?? a['item_date'] ?? '';
-      final expireDateB = b['earliest_expire_date'] ?? b['item_date'] ?? '';
-      final daysA = _calculate_days_left(expireDateA.toString());
-      final daysB = _calculate_days_left(expireDateB.toString());
-      return daysA.compareTo(daysB); // หมดอายุมากที่สุดก่อน (เลขติดลบมาก)
-    });
-    
-    expiringSoon7Items.sort((a, b) {
-      final expireDateA = a['earliest_expire_date'] ?? a['item_date'] ?? '';
-      final expireDateB = b['earliest_expire_date'] ?? b['item_date'] ?? '';
-      final daysA = _calculate_days_left(expireDateA.toString());
-      final daysB = _calculate_days_left(expireDateB.toString());
-      return daysA.compareTo(daysB); // ใกล้หมดอายุที่สุดก่อน
-    });
-    
-    normalItems.sort((a, b) {
-      final expireDateA = a['earliest_expire_date'] ?? a['item_date'] ?? '';
-      final expireDateB = b['earliest_expire_date'] ?? b['item_date'] ?? '';
-      final daysA = _calculate_days_left(expireDateA.toString());
-      final daysB = _calculate_days_left(expireDateB.toString());
-      return daysA.compareTo(daysB); // หมดอายุเร็วกว่าก่อน
-    });
+    // จัดเรียงแต่ละกลุ่มตาม sort_order ที่ผู้ใช้เลือก
+    _sortItemGroup(expiredItems);
+    _sortItemGroup(expiringSoon7Items);
+    _sortItemGroup(normalItems);
     
     // เพิ่มหัวข้อและรายการ
     if (expiredItems.isNotEmpty) {
-      result.add({'isHeader': true, 'title': 'หมดอายุแล้ว (${expiredItems.length})','textColor': Color(0xFFD32F2F)}); // สีแดงเลือดหมู
+      result.add({'isHeader': true, 'title': 'หมดอายุแล้ว (${expiredItems.length})','textColor': Color(0xFFD32F2F)}); 
       for (var item in expiredItems) {
         result.add({'isHeader': false, 'item': item});
       }
     }
     
     if (expiringSoon7Items.isNotEmpty) {
-      result.add({'isHeader': true, 'title': 'ใกล้หมดอายุ (${expiringSoon7Items.length})','textColor': Color(0xFFFF9800)}); // สีส้มทอง
+      result.add({'isHeader': true, 'title': 'สิ่งของใกล้หมดอายุน้อยกว่า7วัน (${expiringSoon7Items.length})','textColor': Color(0xFFFF9800)}); 
       for (var item in expiringSoon7Items) {
         result.add({'isHeader': false, 'item': item});
       }
     }
     
     if (normalItems.isNotEmpty) {
-      result.add({'isHeader': true, 'title': 'สิ่งของทั้งหมด (${normalItems.length})','textColor': Color(0xFF1976D2)}); // สีน้ำเงินเข้ม
+      result.add({'isHeader': true, 'title': 'สิ่งของวันหมดอายุมากกว่า7วัน (${normalItems.length})','textColor': Color(0xFF1976D2)}); // สีน้ำเงินเข้ม
       for (var item in normalItems) {
         result.add({'isHeader': false, 'item': item});
       }
@@ -239,7 +283,7 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: textColor, // ใช้ค่าจากตัวแปร textColor
+              color: textColor, 
             ),
           ),
         ],
@@ -326,7 +370,8 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
     final daysLeft = _calculate_days_left(expireDate.toString());
     
     final imageUrl = item['item_img_full_url']?.toString() ?? '';
-    final storageLocation = item['storage_info']?.toString() ?? item['storage_location']?.toString() ?? '';
+    // กรองพื้นที่เก็บเฉพาะที่มี status เป็น active
+    final storageLocation = _getActiveStorageLocations(item);
     final dateType = item['date_type']?.toString() ?? 'EXP';
     final category = item['category']?.toString() ?? item['type_name']?.toString() ?? '';
 
@@ -562,6 +607,41 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
     );
   }
 
+  String _getActiveStorageLocations(Map<String, dynamic> item) {
+    final itemExpireDetails = item['item_expire_details'] as List?;
+    
+    if (itemExpireDetails == null || itemExpireDetails.isEmpty) {
+      // ถ้าไม่มี item_expire_details ให้ใช้ข้อมูลหลัก
+      return item['storage_info']?.toString() ?? item['storage_location']?.toString() ?? '';
+    }
+    
+    // กรองเฉพาะสิ่งของที่ active และรวบรวมพื้นที่เก็บ
+    final activeDetails = itemExpireDetails
+        .where((detail) => detail['status'] == 'active')
+        .toList();
+    
+    if (activeDetails.isEmpty) {
+      return '';
+    }
+    
+    // รวบรวมพื้นที่เก็บที่ไม่ซ้ำจาก active details
+    Set<String> activeStorageLocations = {};
+    for (var detail in activeDetails) {
+      final areaName = detail['area_name']?.toString() ?? '';
+      if (areaName.isNotEmpty) {
+        activeStorageLocations.add(areaName);
+      }
+    }
+    
+    // ถ้าไม่มีพื้นที่เก็บใน details ให้ใช้ข้อมูลหลัก
+    if (activeStorageLocations.isEmpty) {
+      return item['storage_info']?.toString() ?? item['storage_location']?.toString() ?? '';
+    }
+    
+    // รวมพื้นที่เก็บเป็น string โดยคั่นด้วยเครื่องหมายจุลภาค
+    return activeStorageLocations.join(', ');
+  }
+
   Widget _buildExpireDateWidget(Map<String, dynamic> item, String dateType, Color textColor) {
     final itemExpireDetails = item['item_expire_details'] as List?;
     
@@ -695,7 +775,11 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
     }
     
     if (days_left < 0) {
-      return '${label}แล้ว ${days_left.abs()} วัน';
+      if (date_type == 'BBF') {
+        return 'เลยวันควรบริโภคก่อนแล้ว ${days_left.abs()} วัน';
+      } else {
+        return '${label}แล้ว ${days_left.abs()} วัน';
+      }
     } else if (days_left == 0) {
       return '${label}วันนี้';
     } else if (days_left == 1) {
