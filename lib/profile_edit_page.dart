@@ -414,7 +414,7 @@ Future<void> _pickAndUploadImage() async {
           'โปรไฟล์ผู้ใช้',
           style: TextStyle(
             color: Colors.black87,
-            fontSize: 20,
+            fontSize: 24,
             fontWeight: FontWeight.w600,
           ),
         ),

@@ -166,7 +166,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     SizedBox(height: 16),
                     Text(
                       'ไม่พบสิ่งของเพิ่มการเก็บวันหมดอายุของคุณ',
-                      style: TextStyle(fontSize: 20, color: Color(0xFF4A90E2)),
+                      style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 0, 0, 0)),
                       textAlign: TextAlign.center,
                     ),
                   ],

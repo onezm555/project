@@ -68,18 +68,14 @@ class _NotificationPageState extends State<NotificationPage> {
     }
   }
 
-  // ฟังก์ชันเริ่มการตรวจสอบอัตโนมัติ
+  // ฟังก์ชันการแจ้งเตือน
   void _startPeriodicNotificationCheck() {
-    // ตรวจสอบทุก 30 วินาที
-    _periodicTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    _periodicTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
       _checkAndSendNotifications();
     });
-    
-    // ตรวจสอบทันทีเมื่อเริ่มต้น
     _checkAndSendNotifications();
   }
 
-  // ฟังก์ชันตรวจสอบและส่งการแจ้งเตือนอัตโนมัติ
   Future<void> _checkAndSendNotifications() async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -107,11 +103,9 @@ class _NotificationPageState extends State<NotificationPage> {
       
       for (var item in items) {
         try {
-          // ตรวจสอบว่ามีข้อมูล item_expire_details หรือไม่ (สำหรับสิ่งของที่มีมากกว่า 1 ชิ้น)
           if (item['item_expire_details'] != null && 
               (item['item_expire_details'] as List).isNotEmpty) {
-            
-            // กรณีสิ่งของมีรายละเอียดแต่ละชิ้น
+
             final List<dynamic> expire_details = item['item_expire_details'];
             
             for (int index = 0; index < expire_details.length; index++) {
@@ -122,19 +116,16 @@ class _NotificationPageState extends State<NotificationPage> {
                                item['notification_days'] ?? 3;
               final notifyDate = expireDate.subtract(Duration(days: notifyDays));
               final daysLeft = expireDate.difference(now).inDays;
-              
-              // เช็คว่าควรแจ้งเตือนหรือไม่
+
               final shouldNotify = now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)));
               
               if (shouldNotify) {
                 final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
                 final itemName = item['item_name'] ?? 'สิ่งของไม่ระบุชื่อ';
                 final areaName = detail['area_name'] ?? item['area_name'] ?? '';
-                
-                // สร้าง unique key สำหรับแต่ละการแจ้งเตือน (item_id + detail_index + วันที่)
+
                 final notificationKey = '${itemId}_${index}_${now.year}-${now.month}-${now.day}';
-                
-                // เช็คว่าเคยส่งการแจ้งเตือนในวันนี้แล้วหรือไม่
+
                 if (_sentNotifications.contains(notificationKey)) {
                   continue;
                 }
@@ -155,10 +146,9 @@ class _NotificationPageState extends State<NotificationPage> {
                       : '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) จะหมดอายุในอีก $daysLeft วัน';
                 }
                 
-                // ส่งการแจ้งเตือนทันที
                 try {
                   await flutterLocalNotificationsPlugin.show(
-                    itemId + 10000 + index, // เพิ่ม offset และ index เพื่อไม่ซ้ำกับการแจ้งเตือนอื่น
+                    itemId + 10000 + index,
                     title,
                     message,
                     const NotificationDetails(
@@ -172,13 +162,12 @@ class _NotificationPageState extends State<NotificationPage> {
                       ),
                     ),
                   );
-                  
-                  // เพิ่ม key ลงในรายการที่ส่งแล้ว
+
                   _sentNotifications.add(notificationKey);
-                  await _saveSentNotifications(); // บันทึกลง SharedPreferences
+                  await _saveSentNotifications(); 
                   
                 } catch (e) {
-                  // การแจ้งเตือนล้มเหลว ไม่ต้องทำอะไร
+                  //
                 }
               }
             }
@@ -187,18 +176,15 @@ class _NotificationPageState extends State<NotificationPage> {
             final notifyDays = int.tryParse(item['item_notification'].toString()) ?? 0;
             final notifyDate = expireDate.subtract(Duration(days: notifyDays));
             final daysLeft = expireDate.difference(now).inDays;
-            
-            // เช็คว่าควรแจ้งเตือนหรือไม่
+
             final shouldNotify = now.isAfter(notifyDate) && now.isBefore(expireDate.add(const Duration(days: 1)));
             
             if (shouldNotify) {
               final itemId = item['item_id'] is int ? item['item_id'] : int.tryParse(item['item_id'].toString()) ?? 0;
               final itemName = item['item_name'] ?? 'สิ่งของไม่ระบุชื่อ';
-              
-              // สร้าง unique key สำหรับแต่ละการแจ้งเตือน (item_id + วันที่)
+
               final notificationKey = '${itemId}_${now.year}-${now.month}-${now.day}';
-              
-              // เช็คว่าเคยส่งการแจ้งเตือนในวันนี้แล้วหรือไม่
+
               if (_sentNotifications.contains(notificationKey)) {
                 continue;
               }
@@ -218,11 +204,10 @@ class _NotificationPageState extends State<NotificationPage> {
                     ? '$itemName หมดอายุแล้ว'
                     : '$itemName จะหมดอายุในอีก $daysLeft วัน';
               }
-              
-              // ส่งการแจ้งเตือนทันที
+
               try {
                 await flutterLocalNotificationsPlugin.show(
-                  itemId + 10000, // เพิ่ม offset เพื่อไม่ซ้ำกับการแจ้งเตือนอื่น
+                  itemId + 10000, 
                   title,
                   message,
                   const NotificationDetails(
@@ -239,7 +224,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 
                 // เพิ่ม key ลงในรายการที่ส่งแล้ว
                 _sentNotifications.add(notificationKey);
-                await _saveSentNotifications(); // บันทึกลง SharedPreferences
+                await _saveSentNotifications(); 
                 
               } catch (e) {
                 // การแจ้งเตือนล้มเหลว ไม่ต้องทำอะไร
@@ -251,7 +236,7 @@ class _NotificationPageState extends State<NotificationPage> {
         }
       }
       
-      // ทำความสะอาดรายการการแจ้งเตือนเก่า (เก็บไว้แค่ 7 วัน)
+
       await _cleanupOldNotifications();
       
     } catch (e) {
@@ -265,7 +250,7 @@ class _NotificationPageState extends State<NotificationPage> {
     final cutoffDate = now.subtract(const Duration(days: 7));
     final initialCount = _sentNotifications.length;
     
-    // ลบ notification keys ที่เก่ากว่า 7 วัน
+
     _sentNotifications.removeWhere((key) {
       try {
         final parts = key.split('_');
@@ -281,9 +266,9 @@ class _NotificationPageState extends State<NotificationPage> {
         final dateParts = dateStr.split('-');
         if (dateParts.length == 3) {
           final notificationDate = DateTime(
-            int.parse(dateParts[0]), // year
-            int.parse(dateParts[1]), // month
-            int.parse(dateParts[2]), // day
+            int.parse(dateParts[0]), 
+            int.parse(dateParts[1]), 
+            int.parse(dateParts[2]), 
           );
           return notificationDate.isBefore(cutoffDate);
         }
@@ -331,7 +316,6 @@ class _NotificationPageState extends State<NotificationPage> {
       _isLoading = true;
     });
     
-    // ล้างรายการการแจ้งเตือนที่ส่งแล้วเมื่อรีเฟรช เพื่อให้สามารถแจ้งเตือนได้ใหม่หากต้องการ
     await _cleanupOldNotifications();
     
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -343,8 +327,7 @@ class _NotificationPageState extends State<NotificationPage> {
       });
       return;
     }
-    
-    // ใช้ calendar_items.php แทน notification_check.php เพื่อให้ได้ข้อมูลครบถ้วน
+
     final String apiUrl = '${dotenv.env['API_BASE_URL']}/calendar_items.php?user_id=$userId';
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -739,7 +722,7 @@ class _NotificationPageState extends State<NotificationPage> {
           Text(
             'ไม่มีการแจ้งเตือน',
             style: TextStyle(
-              fontSize: 24, // เพิ่มจาก 18 เป็น 24
+              fontSize: 24, 
               fontWeight: FontWeight.w500,
               color: Colors.black87,
             ),
@@ -748,8 +731,8 @@ class _NotificationPageState extends State<NotificationPage> {
           Text(
             'การแจ้งเตือนจะแสดงที่นี่',
             style: TextStyle(
-              fontSize: 18, // เพิ่มจาก 14 เป็น 18
-              color: Colors.grey,
+              fontSize: 18, 
+              color: Color.fromARGB(255, 0, 0, 0),
             ),
           ),
         ],
@@ -798,7 +781,6 @@ class _NotificationPageState extends State<NotificationPage> {
     
     return GestureDetector(
       onTap: () async {
-        // ใช้ข้อมูลจาก notification['item_data'] ที่เก็บไว้แล้ว
         final item_data = notification['item_data'];
         if (item_data == null) return;
         
@@ -855,39 +837,20 @@ class _NotificationPageState extends State<NotificationPage> {
           ),
         );
         if (result == true) {
-          _fetch_notifications(); // รีเฟรชข้อมูลการแจ้งเตือน
+          _fetch_notifications(); 
         }
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFF3E8FF), // ม่วงอ่อน
-              Color(0xFFE9D5FF), // ม่วงกลาง
-              Color(0xFFDDD6FE), // ม่วงไวโอเล็ต
-            ],
-          ),
+          color: Colors.transparent, 
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: const Color(0xFFE9D5FF).withOpacity(0.7), // ม่วงพาสเทลอ่อน
+            color: const Color(0xFFE9D5FF).withOpacity(0.7),
             width: 3,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFF3E8FF).withOpacity(0.8), // เงาสีม่วงพาสเทลอ่อน
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: const Color(0xFFDDD6FE).withOpacity(0.3), // เงาเพิ่มเติมสีไวโอเล็ต
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          // เอา boxShadow ออกเพื่อให้ไม่มีสีเงา
         ),
         child: Row(
           children: [

@@ -334,7 +334,7 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
             SizedBox(height: 16),
             Text(
               'ไม่มีสิ่งของในตู้เก็บของ',
-              style: TextStyle(fontSize: 18, color: Colors.grey),
+              style: TextStyle(fontSize: 24, color: Color.fromARGB(255, 0, 0, 0)),
             ),
           ],
         ),

@@ -311,7 +311,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
           'ประวัติรายการที่หมดอายุ/ใช้หมดแล้ว',
           style: TextStyle(
             color: Colors.black87,
-            fontSize: 18,
+            fontSize: 24,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -354,7 +354,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                   const SizedBox(height: 10),
                   const Text(
                     'ไม่พบรายการที่หมดอายุหรือใช้หมดแล้ว',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                    style: TextStyle(color: Color.fromARGB(255, 0, 0, 0), fontSize: 20),
                   ),
                 ],
               ),

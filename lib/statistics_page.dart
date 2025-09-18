@@ -384,7 +384,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
           'สถิติ',
           style: TextStyle(
             color: Colors.black87,
-            fontSize: 18,
+            fontSize: 24,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -446,6 +446,38 @@ class _StatisticsPageState extends State<StatisticsPage> {
                     ],
                   ),
                 )
+              : _totalItems == 0
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.analytics_outlined,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'ยังไม่พบสถิติการเก็บสิ่งของคุณ',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'เริ่มต้นเพิ่มสิ่งของแรกของคุณเพื่อดูสถิติ',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[500],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    )
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(

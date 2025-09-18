@@ -8,19 +8,23 @@ class AboutAppPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('เกี่ยวกับแอปพลิเคชัน'),
-        backgroundColor: const Color(0xFFF8BBD9), // Pastel Pink
+        backgroundColor: const Color(0xFFF8BBD9), 
         foregroundColor: const Color.fromARGB(255, 0, 0, 0),
         toolbarTextStyle: const TextStyle(fontSize: 24),
-        titleTextStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        titleTextStyle: const TextStyle(
+          fontSize: 24, 
+          fontWeight: FontWeight.bold,
+          color: Color.fromARGB(255, 0, 0, 0), 
+        ),
         elevation: 8,
+        centerTitle: true,
       ),
-      backgroundColor: const Color(0xFFFFF5F8), // Very Light Pink Background
+      backgroundColor: const Color(0xFFFFF5F8),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // App Icon and Name
             Center(
               child: Column(
                 children: [
@@ -29,8 +33,8 @@ class AboutAppPage extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          const Color(0xFFE8F5E8), // Pastel Green
-                          const Color(0xFFF0F8FF), // Pastel Blue
+                          const Color(0xFFE8F5E8), 
+                          const Color(0xFFF0F8FF),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -40,7 +44,7 @@ class AboutAppPage extends StatelessWidget {
                     child: const Icon(
                       Icons.schedule,
                       size: 80,
-                      color: Color.fromARGB(255, 0, 0, 0), // Medium Slate Blue
+                      color: Color.fromARGB(255, 0, 0, 0),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -49,7 +53,7 @@ class AboutAppPage extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 32, 
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF4A4A4A), // เปลี่ยนเป็นสีเทาเข้มเพื่อให้อ่านง่าย
+                      color: Color(0xFF4A4A4A),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -59,18 +63,17 @@ class AboutAppPage extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // App Description
             _buildSection(
               title: 'เกี่ยวกับแอปพลิเคชัน',
               icon: Icons.info_outline,
-              iconColor: const Color(0xFFFFB6C1), // Light Pink
-              bgColor: const Color(0xFFFFF0F5), // Lavender Blush
+              iconColor: const Color(0xFFFFB6C1),
+              bgColor: const Color(0xFFFFF0F5), 
               content: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'แอปพลิเคชันสำหรับบันทึกและติดตามสิ่งของต่าง ๆ พร้อมการแจ้งเตือนวันหมดอายุ ช่วยให้คุณไม่พลาดการใช้สิ่งของก่อนที่จะหมดอายุ และจัดการสิ่งของในบ้านได้อย่างมีประสิทธิภาพ',
-                    style: TextStyle(fontSize: 18, height: 1.5, color: Color(0xFF4A4A4A)), // เพิ่มขนาดจาก 16 เป็น 18 และเปลี่ยนสี
+                    style: TextStyle(fontSize: 18, height: 1.5, color: Color(0xFF4A4A4A)), 
                   ),
                   const SizedBox(height: 12),
                   Container(
@@ -78,8 +81,8 @@ class AboutAppPage extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          const Color(0xFFE6E6FA), // Lavender
-                          const Color(0xFFF0F8FF), // Alice Blue
+                          const Color(0xFFE6E6FA),
+                          const Color(0xFFF0F8FF), 
                         ],
                       ),
                       borderRadius: BorderRadius.circular(8),
@@ -93,9 +96,9 @@ class AboutAppPage extends StatelessWidget {
                           child: Text(
                             'ไม่ต้องกังวลเรื่องของหมดอายุอีกต่อไป แอปจะเตือนคุณล่วงหน้า!',
                             style: TextStyle(
-                              fontSize: 16, // เพิ่มขนาดจาก 14 เป็น 16
+                              fontSize: 16, 
                               fontWeight: FontWeight.w500,
-                              color: Color(0xFF4A4A4A), // เปลี่ยนสีให้อ่านง่าย
+                              color: Color(0xFF4A4A4A), 
                             ),
                           ),
                         ),
@@ -108,47 +111,46 @@ class AboutAppPage extends StatelessWidget {
 
             const SizedBox(height: 24),
 
-            // Key Features
             _buildSection(
               title: 'ฟีเจอร์หลัก',
               icon: Icons.star_outline,
-              iconColor: const Color(0xFFFFDBA4), // Peach
-              bgColor: const Color(0xFFFFFAF0), // Floral White
+              iconColor: const Color(0xFFFFDBA4),
+              bgColor: const Color(0xFFFFFAF0),
               content: Column(
                 children: [
                   _buildFeatureItem(
                     icon: Icons.add_circle_outline,
-                    iconColor: const Color(0xFF98FB98), // Pale Green
+                    iconColor: const Color(0xFF98FB98),
                     title: 'บันทึกสิ่งของ',
                     description: 'เพิ่มรายการสิ่งของพร้อมวันหมดอายุ รูปภาพ และรายละเอียด',
                   ),
                   _buildFeatureItem(
                     icon: Icons.qr_code_scanner,
-                    iconColor: const Color(0xFFADD8E6), // Light Blue
+                    iconColor: const Color(0xFFADD8E6),
                     title: 'สแกนบาร์โค้ด',
                     description: 'สแกนบาร์โค้ดเพื่อเพิ่มข้อมูลสิ่งของอัตโนมัติ ประหยัดเวลา',
                   ),
                   _buildFeatureItem(
                     icon: Icons.notification_important_outlined,
-                    iconColor: const Color(0xFFFFB6C1), // Light Pink
+                    iconColor: const Color(0xFFFFB6C1),
                     title: 'แจ้งเตือนวันหมดอายุ',
                     description: 'รับการแจ้งเตือนล่วงหน้าก่อนสิ่งของจะหมดอายุ',
                   ),
                   _buildFeatureItem(
                     icon: Icons.location_on_outlined,
-                    iconColor: const Color(0xFFDDA0DD), // Plum
+                    iconColor: const Color(0xFFDDA0DD), 
                     title: 'จัดเก็บหลายพื้นที่',
                     description: 'แบ่งสิ่งของเก็บในหลายพื้นที่ เช่น ตู้เย็น ห้องเก็บของ',
                   ),
                   _buildFeatureItem(
                     icon: Icons.calendar_view_week_outlined,
-                    iconColor: const Color(0xFFF0E68C), // Khaki
+                    iconColor: const Color(0xFFF0E68C), 
                     title: 'ดูรายการที่หมดอายุ',
                     description: 'ตรวจสอบรายการสิ่งของที่กำลังจะหมดอายุหรือหมดอายุแล้ว',
                   ),
                   _buildFeatureItem(
                     icon: Icons.camera_alt_outlined,
-                    iconColor: const Color(0xFFAFEEEE), // Pale Turquoise
+                    iconColor: const Color(0xFFAFEEEE), 
                     title: 'แปลงรูปเป็นข้อความ',
                     description: 'ใช้ AI อ่านข้อความจากรูปภาพเพื่อบันทึกข้อมูลได้รวดเร็ว',
                   ),
@@ -158,12 +160,11 @@ class AboutAppPage extends StatelessWidget {
 
             const SizedBox(height: 24),
 
-            // How to Use
             _buildSection(
               title: 'วิธีการใช้งาน',
               icon: Icons.help_outline,
-              iconColor: const Color(0xFFFFA07A), // Light Salmon
-              bgColor: const Color(0xFFFFF8DC), // Cornsilk
+              iconColor: const Color(0xFFFFA07A), 
+              bgColor: const Color(0xFFFFF8DC), 
               content: Column(
                 children: [
                   _buildStepItem(1, 'เพิ่มพื้นที่จัดเก็บ', 'สร้างพื้นที่ต่าง ๆ เช่น ตู้เย็น ห้องเก็บของ ห้องครัว', const Color(0xFF98FB98)),
@@ -176,7 +177,6 @@ class AboutAppPage extends StatelessWidget {
 
             const SizedBox(height: 32),
 
-            // Footer
             Center(
               child: Column(
                 children: [
@@ -185,8 +185,8 @@ class AboutAppPage extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          const Color(0xFFE6E6FA), // Lavender
-                          const Color(0xFFF0F8FF), // Alice Blue
+                          const Color(0xFFE6E6FA),
+                          const Color(0xFFF0F8FF),
                         ],
                       ),
                       borderRadius: BorderRadius.circular(12),
@@ -202,17 +202,17 @@ class AboutAppPage extends StatelessWidget {
                         Text(
                           'จัดการสิ่งของด้วยความรัก',
                           style: TextStyle(
-                            fontSize: 18, // เพิ่มขนาดจาก 16 เป็น 18
+                            fontSize: 18, 
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF4A4A4A), // เปลี่ยนสีให้อ่านง่าย
+                            color: const Color(0xFF4A4A4A), 
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           'ไม่ให้อะไรหมดอายุโดยเปล่าประโยชน์',
                           style: TextStyle(
-                            fontSize: 16, // เพิ่มขนาดจาก 14 เป็น 16
-                            color: const Color(0xFF666666), // เปลี่ยนสีให้อ่านง่าย
+                            fontSize: 16, 
+                            color: const Color(0xFF666666), 
                           ),
                         ),
                       ],
@@ -254,14 +254,14 @@ class AboutAppPage extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: iconColor ?? const Color(0xFF8B5A8C), size: 28), // เพิ่มขนาดไอคอนจาก 24 เป็น 28
+              Icon(icon, color: iconColor ?? const Color(0xFF8B5A8C), size: 28),
               const SizedBox(width: 8),
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 26, // เพิ่มขนาดจาก 20 เป็น 24
+                  fontSize: 26, 
                   fontWeight: FontWeight.bold,
-                  color: Color.fromARGB(255, 0, 0, 0), // เปลี่ยนสีให้อ่านง่าย
+                  color: Color.fromARGB(255, 0, 0, 0),
                 ),
               ),
             ],
@@ -295,7 +295,7 @@ class AboutAppPage extends StatelessWidget {
               ),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: iconColor ?? const Color(0xFF8B5A8C), size: 24), // เพิ่มขนาดไอคอนจาก 20 เป็น 24
+            child: Icon(icon, color: iconColor ?? const Color(0xFF8B5A8C), size: 24), 
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -305,17 +305,17 @@ class AboutAppPage extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 18, // เพิ่มขนาดจาก 16 เป็น 18
+                    fontSize: 18, 
                     fontWeight: FontWeight.w600,
-                    color: Color.fromARGB(255, 0, 0, 0), // เปลี่ยนสีให้อ่านง่าย
+                    color: Color.fromARGB(255, 0, 0, 0), 
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   description,
                   style: const TextStyle(
-                    fontSize: 16, // เพิ่มขนาดจาก 14 เป็น 16
-                    color: Color.fromARGB(255, 0, 0, 0), // เปลี่ยนสีให้อ่านง่าย
+                    fontSize: 16, 
+                    color: Color.fromARGB(255, 0, 0, 0), 
                     height: 1.4,
                   ),
                 ),
@@ -366,15 +366,15 @@ class AboutAppPage extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 18, // เพิ่มขนาดจาก 16 เป็น 18
                     fontWeight: FontWeight.w600,
-                    color: Color.fromARGB(255, 0, 0, 0), // เปลี่ยนสีให้อ่านง่าย
+                    color: Color.fromARGB(255, 0, 0, 0), 
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   description,
                   style: const TextStyle(
-                    fontSize: 16, // เพิ่มขนาดจาก 14 เป็น 16
-                    color: Color.fromARGB(255, 0, 0, 0), // เปลี่ยนสีให้อ่านง่าย
+                    fontSize: 16, 
+                    color: Color.fromARGB(255, 0, 0, 0), 
                     height: 1.4,
                   ),
                 ),
