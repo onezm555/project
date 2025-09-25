@@ -302,17 +302,17 @@ class _LoginPageState extends State<LoginPage> {
     final bool isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
     
     return Scaffold(
-      backgroundColor: Colors.transparent, // เพิ่มสีพื้นหลังโปรงใส
+      backgroundColor: Colors.transparent, 
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color(0xFFF3E8FF), // ม่วงอ่อน (purple-50)
-              Color(0xFFE9D5FF), // ม่วงกลาง (purple-100)
-              Color(0xFFDDD6FE), // ม่วงไวโอเล็ต (violet-200)
-              Color(0xFFF0E6FF), // ลาเวนเดอร์อ่อน
+              Color(0xFFF3E8FF), 
+              Color(0xFFE9D5FF), 
+              Color(0xFFDDD6FE), 
+              Color(0xFFF0E6FF), 
             ],
           ),
         ),
@@ -331,7 +331,7 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SizedBox(height: isKeyboardOpen ? 20 : 60),
-                  // Logo Container with responsive size
+                 
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     width: isKeyboardOpen ? 250 : 450,
@@ -379,7 +379,7 @@ class _LoginPageState extends State<LoginPage> {
                   // Email Field with improved design
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3), // ทำให้โปรงใส
+                      color: Colors.white.withOpacity(0.3), 
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
@@ -429,7 +429,7 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         filled: true,
-                        fillColor: Colors.white.withOpacity(0.3), // ทำให้โปรงใส
+                        fillColor: Colors.white.withOpacity(0.3), 
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 18,

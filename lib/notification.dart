@@ -8,7 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:permission_handler/permission_handler.dart';
-import 'dart:async'; // เพิ่ม import สำหรับ Timer
+import 'dart:async'; 
 
 class NotificationPage extends StatefulWidget {
   const NotificationPage({Key? key}) : super(key: key);
@@ -130,21 +130,11 @@ class _NotificationPageState extends State<NotificationPage> {
                   continue;
                 }
                 
-                final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
-                final isBBF = dateType == 'BBF';
-                
-                String title = isBBF ? 'สิ่งของใกล้ควรบริโภคก่อน' : 'สิ่งของใกล้หมดอายุ';
-                String message;
-                
-                if (isBBF) {
-                  message = daysLeft < 0
-                      ? '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) เลยวันควรบริโภคแล้ว'
-                      : '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) ควรบริโภคในอีก $daysLeft วัน';
-                } else {
-                  message = daysLeft < 0
-                      ? '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) หมดอายุแล้ว'
-                      : '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) จะหมดอายุในอีก $daysLeft วัน';
-                }
+                // ไม่สนใจ BBF แล้ว
+                String title = 'สิ่งของใกล้หมดอายุ';
+                String message = daysLeft < 0
+                    ? '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) หมดอายุแล้ว - กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่'
+                    : '$itemName (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) จะหมดอายุในอีก $daysLeft วัน - กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่';
                 
                 try {
                   await flutterLocalNotificationsPlugin.show(
@@ -189,21 +179,11 @@ class _NotificationPageState extends State<NotificationPage> {
                 continue;
               }
               
-              final dateType = item['date_type']?.toString().toUpperCase() ?? 'EXP';
-              final isBBF = dateType == 'BBF';
-              
-              String title = isBBF ? 'สิ่งของใกล้ควรบริโภคก่อน' : 'สิ่งของใกล้หมดอายุ';
-              String message;
-              
-              if (isBBF) {
-                message = daysLeft < 0
-                    ? '$itemName เลยวันควรบริโภคแล้ว'
-                    : '$itemName ควรบริโภคในอีก $daysLeft วัน';
-              } else {
-                message = daysLeft < 0
-                    ? '$itemName หมดอายุแล้ว'
-                    : '$itemName จะหมดอายุในอีก $daysLeft วัน';
-              }
+              // ไม่สนใจ BBF แล้ว
+              String title = 'สิ่งของใกล้หมดอายุ';
+              String message = daysLeft < 0
+                  ? '$itemName หมดอายุแล้ว - กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่'
+                  : '$itemName จะหมดอายุในอีก $daysLeft วัน - กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่';
 
               try {
                 await flutterLocalNotificationsPlugin.show(
@@ -379,13 +359,13 @@ class _NotificationPageState extends State<NotificationPage> {
                   
                   if (isBBF) {
                     description = daysLeft < 0
-                        ? 'เลยวันควรบริโภคแล้ว ${(-daysLeft)} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
-                        : 'ควรบริโภคในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})';
+                        ? 'เลยวันควรบริโภคแล้ว ${(-daysLeft)} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) • กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่'
+                        : 'ควรบริโภคในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) • กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่';
                     dateLabel = 'วันควรบริโภคก่อน ${expireDate.day}/${expireDate.month}/${expireDate.year}';
                   } else {
                     description = daysLeft < 0
-                        ? 'หมดอายุแล้ว ${(-daysLeft)} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})'
-                        : 'จะหมดอายุในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''})';
+                        ? 'หมดอายุแล้ว ${(-daysLeft)} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) • กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่'
+                        : 'จะหมดอายุในอีก ${daysLeft} วัน (ชิ้นที่ ${index + 1}${areaName.isNotEmpty ? ' - $areaName' : ''}) • กรุณาตรวจสอบว่าสิ่งของยังอยู่ที่เดิมหรือไม่';
                     dateLabel = 'วันหมดอายุ ${expireDate.day}/${expireDate.month}/${expireDate.year}';
                   }
                   
@@ -707,7 +687,6 @@ class _NotificationPageState extends State<NotificationPage> {
     );
   }
 
-  // Widget สำหรับแสดงเมื่อไม่มีการแจ้งเตือน
   Widget _build_empty_state() {
     return const Center(
       child: Column(
@@ -742,41 +721,89 @@ class _NotificationPageState extends State<NotificationPage> {
 
   // สร้างส่วนการแจ้งเตือนแบบรวม
   List<Widget> _build_notification_sections() {
-    // รวมการแจ้งเตือนทั้งหมดเข้าด้วยกัน
     final all_notifications = _notifications.toList();
+    // จัดกลุ่มตามวันที่และสถานะ
+    final now = DateTime.now();
+    List<Map<String, dynamic>> todayExpired = [];
+    List<Map<String, dynamic>> todayNearExpiry = [];
+    List<Map<String, dynamic>> yesterday = [];
+    List<Map<String, dynamic>> earlier = [];
 
-    List<Widget> sections = [];
-
-    // แสดงการแจ้งเตือนทั้งหมดโดยไม่มีหัวข้อ
-    if (all_notifications.isNotEmpty) {
-      sections.addAll(
-        all_notifications.map((notification) => 
-          _build_notification_card(notification)
-        ).toList(),
-      );
+    for (var n in all_notifications) {
+      if (n['created_at'] is DateTime) {
+        final created = n['created_at'] as DateTime;
+        if (created.year == now.year && created.month == now.month && created.day == now.day) {
+          // แยกของวันนี้ตามสถานะ
+          if (n['is_expired'] == true) {
+            todayExpired.add(n);
+          } else {
+            todayNearExpiry.add(n);
+          }
+        } else if (created.year == now.year && created.month == now.month && created.day == now.day - 1) {
+          yesterday.add(n);
+        } else {
+          earlier.add(n);
+        }
+      } else {
+        earlier.add(n); // fallback
+      }
     }
 
+    List<Widget> sections = [];
+    
+    // หมดอายุแล้ว (วันนี้)
+    if (todayExpired.isNotEmpty) {
+      sections.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+        child: Text('หมดอายุแล้ว', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red[700])),
+      ));
+      sections.addAll(todayExpired.map(_build_notification_card));
+    }
+    
+    // ใกล้หมดอายุ (วันนี้)
+    if (todayNearExpiry.isNotEmpty) {
+      sections.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+        child: Text('ใกล้หมดอายุ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.purple[700])),
+      ));
+      sections.addAll(todayNearExpiry.map(_build_notification_card));
+    }
+    
+    if (yesterday.isNotEmpty) {
+      sections.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+        child: Text('เมื่อวาน', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange[800])),
+      ));
+      sections.addAll(yesterday.map(_build_notification_card));
+    }
+    if (earlier.isNotEmpty) {
+      sections.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+        child: Text('ก่อนหน้านี้', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+      ));
+      sections.addAll(earlier.map(_build_notification_card));
+    }
     return sections;
   }
 
   // Widget การ์ดการแจ้งเตือน
   Widget _build_notification_card(Map<String, dynamic> notification) {
     final is_expired = notification['is_expired'] as bool;
-    final is_bbf = notification['is_bbf'] as bool? ?? false;
-    
-    // กำหนดสีพาสเทลและไอคอนตามประเภท
+    // ไม่สนใจ is_bbf แล้ว
     Color statusColor;
     Color backgroundColor;
     IconData statusIcon;
     
     if (is_expired) {
-      statusColor = Colors.red; // เปลี่ยนเป็นสีแดงชัดเจนสำหรับหมดอายุ
-      backgroundColor = is_bbf ? const Color(0xFFFFF5F0) : const Color(0xFFFFF0F5); // พื้นหลังสีครีมอ่อน
-      statusIcon = is_bbf ? Icons.schedule : Icons.error; // เปลี่ยนเป็นไอคอนแบบเต็ม
+      // หมดอายุแล้ว
+      statusColor = const Color(0xFFD32F2F); // แดง
+      backgroundColor = const Color(0xFFFFEBEE);
+      statusIcon = Icons.error_rounded;
     } else {
-      statusColor = is_bbf ? const Color(0xFFD4A574) : const Color(0xFFDDA0DD); // สีทองพาสเทลและม่วงพาสเทล
-      backgroundColor = is_bbf ? const Color(0xFFFFFAF0) : const Color(0xFFF8F4FF); // พื้นหลังสีครีมและม่วงอ่อน
-      statusIcon = is_bbf ? Icons.schedule_outlined : Icons.warning_outlined;
+      // ใกล้หมดอายุ
+      statusColor = const Color(0xFF7B1FA2); // ม่วง
+      backgroundColor = const Color(0xFFF3E5F5);
+      statusIcon = Icons.warning_amber_rounded;
     }
     
     return GestureDetector(
@@ -847,7 +874,7 @@ class _NotificationPageState extends State<NotificationPage> {
           color: Colors.transparent, 
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: const Color(0xFFE9D5FF).withOpacity(0.7),
+            color: statusColor.withOpacity(0.4), // ใช้สีตามประเภทการแจ้งเตือน
             width: 3,
           ),
           // เอา boxShadow ออกเพื่อให้ไม่มีสีเงา
@@ -856,16 +883,20 @@ class _NotificationPageState extends State<NotificationPage> {
           children: [
             // ไอคอนสถานะ
             Container(
-              width: 40,
-              height: 40,
+              width: 48, // เพิ่มจาก 40 เป็น 48
+              height: 48, // เพิ่มจาก 40 เป็น 48
               decoration: BoxDecoration(
                 color: backgroundColor,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(24), // เพิ่มจาก 20 เป็น 24
+                border: Border.all(
+                  color: statusColor.withOpacity(0.3),
+                  width: 2,
+                ),
               ),
               child: Icon(
                 statusIcon,
                 color: statusColor,
-                size: 20,
+                size: 28, // เพิ่มจาก 20 เป็น 28
               ),
             ),
             

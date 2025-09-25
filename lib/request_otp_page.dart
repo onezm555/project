@@ -61,11 +61,13 @@ class _RequestOtpPageState extends State<RequestOtpPage> {
 
       if (mounted) {
         final responseData = jsonDecode(response.body);
+        
         if (response.statusCode == 200 && responseData['status'] == 'success') {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(responseData['message'] ?? 'ส่งรหัสยืนยันไปยังอีเมลของคุณแล้ว'),
               backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
             ),
           );
           // Navigate to the OTP confirmation page, passing the email
@@ -76,10 +78,12 @@ class _RequestOtpPageState extends State<RequestOtpPage> {
             ),
           );
         } else {
+          // แสดงข้อผิดพลาดจาก server (เช่น ไม่พบอีเมลในระบบ)
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(responseData['message'] ?? 'เกิดข้อผิดพลาดในการส่งรหัสยืนยัน'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
             ),
           );
         }

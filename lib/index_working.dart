@@ -152,6 +152,39 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
     }
   }
 
+  // ฟังก์ชันสำหรับกำหนดสีตามสถานะวันหมดอายุ - ปรับสีให้ชัดเจนมากขึ้น
+  Map<String, Color> _getExpireDateColors(int daysLeft, String dateType) {
+    if (daysLeft < 0) {
+      // หมดอายุแล้ว / เลยวันควรบริโภคแล้ว - สีแดงเข้มสดใส
+      return {
+        'backgroundColor': const Color(0xFFFFCDD2), // แดงอ่อนสดใส
+        'borderColor': const Color(0xFFD32F2F), // แดงเข้มสดใส
+        'textColor': const Color(0xFFB71C1C), // แดงเข้มมาก
+      };
+    } else if (daysLeft <= 7 && daysLeft >= 0) {
+      // ใกล้หมดอายุ 0-7 วัน - สีส้มสดใส
+      return {
+        'backgroundColor': const Color(0xFFFFE0B2), // ส้มอ่อนสดใส
+        'borderColor': const Color(0xFFFF9800), // ส้มสดใส
+        'textColor': const Color(0xFFE65100), // ส้มเข้ม
+      };
+    } else if (daysLeft > 7 && daysLeft <= 30) {
+      // มากกว่า 7 วัน แต่น้อยกว่า 30 วัน - สีเขียวสดใส
+      return {
+        'backgroundColor': const Color(0xFFC8E6C9), // เขียวอ่อนสดใส
+        'borderColor': const Color(0xFF4CAF50), // เขียวสดใส
+        'textColor': const Color(0xFF2E7D32), // เขียวเข้ม
+      };
+    } else {
+      // มากกว่า 30 วัน หรือ อื่นๆ - สีน้ำเงินฟ้าสดใส
+      return {
+        'backgroundColor': const Color(0xFFB3E5FC), // ฟ้าอ่อนสดใส
+        'borderColor': const Color(0xFF2196F3), // ฟ้าสดใส
+        'textColor': const Color(0xFF0D47A1), // น้ำเงินเข้ม
+      };
+    }
+  }
+
   // ฟังก์ชันสำหรับเรียงลำดับกลุ่มสิ่งของตาม sort_order
   void _sortItemGroup(List<Map<String, dynamic>> items) {
     final sortOrder = _current_filters['sort_order']?.toString();
@@ -649,12 +682,21 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
       // ถ้าไม่มี item_expire_details ให้ใช้ข้อมูลหลัก
       final expireDate = item['earliest_expire_date'] ?? item['item_date'] ?? '';
       final daysLeft = _calculate_days_left(expireDate.toString());
-      return Text(
-        _format_simple_expire_date(expireDate, daysLeft, dateType),
-        style: TextStyle(
-          fontSize: 12,
-          color: textColor,
-          fontWeight: FontWeight.w500,
+      final colors = _getExpireDateColors(daysLeft, dateType);
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: colors['backgroundColor'],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors['borderColor']!, width: 2),
+        ),
+        child: Text(
+          _format_simple_expire_date(expireDate, daysLeft, dateType),
+          style: TextStyle(
+            fontSize: 12,
+            color: colors['textColor'],
+            fontWeight: FontWeight.w600,
+          ),
         ),
       );
     }
@@ -665,12 +707,20 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
         .toList();
     
     if (activeDetails.isEmpty) {
-      return Text(
-        'ไม่มีสิ่งของที่ยังใช้ได้',
-        style: TextStyle(
-          fontSize: 12,
-          color: textColor,
-          fontWeight: FontWeight.w500,
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade400, width: 1),
+        ),
+        child: Text(
+          'ไม่มีสิ่งของที่ยังใช้ได้',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       );
     }
@@ -704,6 +754,7 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
       final quantity = dateQuantityMap[date] ?? 0;
       final daysLeft = _calculate_days_left(date);
       final dateText = _format_simple_expire_date(date, daysLeft, dateType);
+      final colors = _getExpireDateColors(daysLeft, dateType);
       
       String displayText;
       if (uniqueDates.length == 1) {
@@ -717,15 +768,22 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           margin: const EdgeInsets.only(right: 6, bottom: 4),
           decoration: BoxDecoration(
-            color: textColor.withOpacity(0.1),
+            color: colors['backgroundColor'],
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: textColor.withOpacity(0.3), width: 2),
+            border: Border.all(color: colors['borderColor']!, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: colors['borderColor']!.withOpacity(0.2),
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+            ],
           ),
           child: Text(
             displayText,
             style: TextStyle(
               fontSize: 12,
-              color: const Color.fromARGB(255, 0, 0, 0),
+              color: colors['textColor'],
               fontWeight: FontWeight.w600,
             ),
             textAlign: TextAlign.center,
@@ -734,25 +792,61 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
       );
     }
     
-    // ถ้ามีมากกว่า 3 วัน ให้แสดง "อื่นๆ"
+    // ถ้ามีมากกว่า 3 วัน ให้แสดง "อื่นๆ" โดยใช้สีของวันที่เร็วที่สุดใน remaining dates
     if (uniqueDates.length > maxShow) {
       final remainingDates = uniqueDates.length - maxShow;
+      final remainingDatesList = uniqueDates.skip(maxShow).toList();
+      
+      // หาสีจากวันที่เร็วที่สุดใน remaining dates
+      Color othersBgColor = const Color(0xFFE2E8F0); // เทาน้ำเงินอ่อน
+      Color othersBorderColor = const Color(0xFF64748B); // เทาน้ำเงินกลาง
+      Color othersTextColor = const Color(0xFF334155); // เทาน้ำเงินเข้ม
+      
+      if (remainingDatesList.isNotEmpty) {
+        final earliestRemainingDate = remainingDatesList.first;
+        final earliestDaysLeft = _calculate_days_left(earliestRemainingDate);
+        
+        // ใช้สีที่เข้มขึ้นสำหรับ "อื่นๆ" เพื่อให้เห็นชัดเจน
+        if (earliestDaysLeft < 0) {
+          // แดง - สำหรับหมดอายุแล้ว
+          othersBgColor = const Color(0xFFFFE4E6); 
+          othersBorderColor = const Color(0xFFDC2626);
+          othersTextColor = const Color(0xFF991B1B);
+        } else if (earliestDaysLeft <= 7) {
+          // ส้ม - สำหรับใกล้หมดอายุ
+          othersBgColor = const Color(0xFFFEF3C7);
+          othersBorderColor = const Color(0xFFD97706);
+          othersTextColor = const Color(0xFF92400E);
+        } else {
+          // เขียว - สำหรับปกติ
+          othersBgColor = const Color(0xFFDCFCE7);
+          othersBorderColor = const Color(0xFF16A34A);
+          othersTextColor = const Color(0xFF166534);
+        }
+      }
       
       dateWidgets.add(
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           margin: const EdgeInsets.only(right: 6, bottom: 4),
           decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.2),
+            color: othersBgColor,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.withOpacity(0.5), width: 1),
+            border: Border.all(color: othersBorderColor, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: othersBorderColor.withOpacity(0.25),
+                blurRadius: 3,
+                offset: const Offset(0, 1),
+              ),
+            ],
           ),
           child: Text(
             'อื่นๆ +$remainingDates',
             style: TextStyle(
               fontSize: 12,
-              color: const Color.fromARGB(255, 0, 0, 0),
-              fontWeight: FontWeight.w600,
+              color: othersTextColor,
+              fontWeight: FontWeight.w700, // เพิ่มความหนาของตัวอักษร
             ),
             textAlign: TextAlign.center,
           ),
@@ -770,22 +864,27 @@ class IndexPageWorkingState extends State<IndexPageWorking> {
 
   String _format_simple_expire_date(String expire_date, int days_left, String date_type) {
     String label = 'หมดอายุ';
+    String expiredLabel = 'หมดอายุแล้ว';
+    String todayLabel = 'หมดอายุวันนี้';
+    String tomorrowLabel = 'หมดอายุพรุ่งนี้';
+    String inDaysLabel = 'หมดอายุอีก';
+    
     if (date_type == 'BBF') {
       label = 'ควรบริโภคก่อน';
+      expiredLabel = 'เลยวันควรบริโภคแล้ว';
+      todayLabel = 'ควรบริโภควันนี้';
+      tomorrowLabel = 'ควรบริโภคพรุ่งนี้';
+      inDaysLabel = 'ควรบริโภคอีก';
     }
     
     if (days_left < 0) {
-      if (date_type == 'BBF') {
-        return 'เลยวันควรบริโภคก่อนแล้ว ${days_left.abs()} วัน';
-      } else {
-        return '${label}แล้ว ${days_left.abs()} วัน';
-      }
+      return '$expiredLabel ${days_left.abs()} วัน';
     } else if (days_left == 0) {
-      return '${label}วันนี้';
+      return todayLabel;
     } else if (days_left == 1) {
-      return '${label}พรุ่งนี้';
+      return tomorrowLabel;
     } else if (days_left <= 30) {
-      return '${label}อีก $days_left วัน';
+      return '$inDaysLabel $days_left วัน';
     } else {
       try {
         final date = DateTime.parse(expire_date);

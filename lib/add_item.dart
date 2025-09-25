@@ -58,7 +58,6 @@ class _AddItemPageState extends State<AddItemPage> {
   List<Map<String, dynamic>> _item_locations = [];
   int _remaining_quantity = 0;
 
-  // Variables for individual item storage management (new system)
   bool _allow_separate_storage = false; // ให้ผู้ใช้เลือกว่าจะแยกพื้นที่เก็บหรือไม่
   List<Map<String, dynamic>> _item_storage_details = []; // พื้นที่เก็บแต่ละชิ้น
   List<Map<String, dynamic>> _storage_groups = []; // กลุ่มพื้นที่เก็บ (พื้นที่ + จำนวน)
@@ -95,13 +94,13 @@ class _AddItemPageState extends State<AddItemPage> {
         _update_remaining_quantity();
       }
       
-      // อัปเดตกลุ่มวันหมดอายุถ้าจำเป็น
+    
       if (_allow_separate_expire_dates && _expire_date_groups.isNotEmpty) {
         final newTotal = int.tryParse(_quantity_controller.text) ?? 0;
         final currentTotal = _get_total_grouped_quantity();
         
         if (newTotal != currentTotal && newTotal > 0) {
-          // ปรับกลุ่มแรกให้ตรงกับจำนวนใหม่
+        
           if (_expire_date_groups.isNotEmpty) {
             final difference = newTotal - currentTotal;
             final firstGroup = _expire_date_groups[0];
@@ -140,8 +139,8 @@ class _AddItemPageState extends State<AddItemPage> {
               // ถ้าจำนวนน้อยลง ให้ปรับทุกกลุ่ม
               _storage_groups.clear();
               _storage_groups.add({
-                'area_id': _get_selected_storage_id(),
-                'area_name': _selected_storage,
+                'area_id': null,
+                'area_name': null, // ให้ผู้ใช้เลือกเอง
                 'quantity': newTotal,
               });
             }
@@ -149,7 +148,7 @@ class _AddItemPageState extends State<AddItemPage> {
         }
       }
     });
-    // โหลดข้อมูลเริ่มต้นจาก item_data ถ้ามี (ทั้งโหมดแก้ไขและโหมดเพิ่มใหม่)
+    
     if (widget.item_data != null) {
       final item = widget.item_data!;
       
@@ -160,7 +159,7 @@ class _AddItemPageState extends State<AddItemPage> {
           ? item['item_notification'].toString()
           : '7';
       
-      // ตรวจสอบและแปลงค่า unit/date_type ให้ตรงกับ dropdown
+      
       String rawUnit = item['unit'] ?? item['date_type'] ?? 'วันหมดอายุ(EXP)';
       
       if (rawUnit == 'EXP' || rawUnit == 'วันหมดอายุ(EXP)') {
@@ -172,7 +171,7 @@ class _AddItemPageState extends State<AddItemPage> {
         _selected_unit = _units.contains(rawUnit) ? rawUnit : 'วันหมดอายุ(EXP)';
       }
       
-      // เก็บหมวดหมู่ไว้ชั่วคราว รอ _fetch_categories() ตั้งค่าให้
+      
       _temp_category_from_item_data = item['category'] ?? item['type_name'] ?? '';
       
       // เก็บพื้นที่จัดเก็บไว้ชั่วคราว รอ _fetch_storage_locations() ตั้งค่าให้
@@ -880,14 +879,14 @@ class _AddItemPageState extends State<AddItemPage> {
       _allow_separate_storage = value;
       
       if (value) {
-        // เปิดใช้งาน - เตรียมข้อมูลเริ่มต้น
+        // เปิดใช้งาน - ให้ผู้ใช้เลือกพื้นที่เอง
         final totalQuantity = int.tryParse(_quantity_controller.text) ?? 1;
         
         if (_storage_groups.isEmpty) {
-          // สร้างกลุ่มเริ่มต้น
+          // สร้างกลุ่มเริ่มต้น โดยไม่ตั้งค่าพื้นที่ล่วงหน้า
           _storage_groups.add({
-            'area_id': _get_selected_storage_id(),
-            'area_name': _selected_storage,
+            'area_id': null,
+            'area_name': null, // ให้ผู้ใช้เลือกเอง
             'quantity': totalQuantity,
           });
         }
@@ -933,13 +932,13 @@ class _AddItemPageState extends State<AddItemPage> {
       return;
     }
 
-    // ให้ผู้ใช้เลือกพื้นที่เอง โดยเริ่มต้นด้วย "เลือกพื้นที่จัดเก็บ"
+    // ให้ผู้ใช้เลือกพื้นที่เอง โดยไม่ตั้งค่าเริ่มต้น
     final remainingQuantity = totalQuantity - usedQuantity;
     
     setState(() {
       _storage_groups.add({
         'area_id': null,
-        'area_name': 'เลือกพื้นที่จัดเก็บ',
+        'area_name': null, // ไม่ตั้งค่าเริ่มต้น ให้ผู้ใช้เลือกเอง
         'quantity': remainingQuantity > 0 ? 1 : 0,
       });
     });
@@ -1353,11 +1352,20 @@ class _AddItemPageState extends State<AddItemPage> {
             _selected_storage = area_name;
           });
         } else {
-          _show_error_message('Error: ${response_data['message']}');
+          _show_error_message(response_data['message'] ?? 'เกิดข้อผิดพลาดในการเพิ่มพื้นที่จัดเก็บ');
         }
       } else {
-        final error_body_decoded = utf8.decode(response.bodyBytes);
-        _show_error_message('Server error: ${response.statusCode} - $error_body_decoded');
+        // Parse error response to get Thai message
+        try {
+          final error_data = json.decode(utf8.decode(response.bodyBytes));
+          if (error_data['message'] != null) {
+            _show_error_message(error_data['message']);
+          } else {
+            _show_error_message('เกิดข้อผิดพลาดในการเพิ่มพื้นที่จัดเก็บ');
+          }
+        } catch (e) {
+          _show_error_message('เกิดข้อผิดพลาดในการเพิ่มพื้นที่จัดเก็บ');
+        }
       }
     } catch (e) {
       _show_error_message('เกิดข้อผิดพลาดในการเพิ่มพื้นที่จัดเก็บ: $e');
@@ -3229,7 +3237,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          'จำนวน: ${group['quantity']} ชิ้น | พื้นที่: ${group['area_name'] ?? 'ยังไม่เลือก'}',
+                                          'จำนวน: ${group['quantity']} ชิ้น | พื้นที่: ${group['area_name'] != null && group['area_name'].toString().isNotEmpty ? group['area_name'] : 'ยังไม่เลือก'}',
                                           style: TextStyle(
                                             fontSize: 16,
                                             color: Colors.green[600],
@@ -3317,6 +3325,28 @@ class _AddItemPageState extends State<AddItemPage> {
                                       'ชิ้น',
                                       style: TextStyle(fontSize: 12),
                                     ),
+                                    const SizedBox(width: 12),
+                                    // ปุ่มเพิ่มพื้นที่จัดเก็บใหม่แบบกะทัดรัด
+                                    SizedBox(
+                                      height: 28,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _show_add_storage_dialog,
+                                        icon: const Icon(Icons.add_location_alt_outlined, size: 12),
+                                        label: const Text(
+                                          'เพิ่มพื้นที่',
+                                          style: TextStyle(fontSize: 10),
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: const Color(0xFF4A90E2),
+                                          side: const BorderSide(color: Color(0xFF4A90E2), width: 1),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          minimumSize: Size.zero,
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
@@ -3348,7 +3378,7 @@ class _AddItemPageState extends State<AddItemPage> {
                                             return groupAreaName;
                                           }
                                           
-                                          // ถ้าไม่มี หรือเป็น "เลือกพื้นที่จัดเก็บ" ให้คืนค่า null เพื่อแสดง hint
+                                          // คืนค่า null เสมอเพื่อให้ผู้ใช้เลือกเอง
                                           return null;
                                         }(),
                                         decoration: InputDecoration(
@@ -3380,85 +3410,76 @@ class _AddItemPageState extends State<AddItemPage> {
                                         dropdownColor: Colors.white,
                                         menuMaxHeight: 400,
                                         itemHeight: 56,
-                                        items: [
-                                          // แสดงตัวเลือกเพิ่มพื้นที่ใหม่เฉพาะเมื่อยังไม่ได้เลือกพื้นที่ที่เฉพาะเจาะจง
-                                          if (_selected_storage == 'เลือกพื้นที่จัดเก็บ' || _selected_storage.isEmpty)
-                                            const DropdownMenuItem<String>(
-                                              value: '__ADD_NEW_AREA__',
+                                        items: () {
+                                          List<DropdownMenuItem<String>> items = [];
+                                          
+                                          // ไม่แสดงตัวเลือก "เพิ่มพื้นที่ใหม่" ใน dropdown ของกลุ่มพื้นที่เก็บ
+                                          // เพื่อป้องกัน error และความสับสน
+                                          
+                                          // รวมพื้นที่ทั้งหมดและกรองซ้ำ
+                                          final uniqueAreas = <String>{};
+                                          final filteredLocations = _storage_locations
+                                            .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
+                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                            .where((loc) {
+                                              final areaName = loc['area_name'] as String;
+                                              if (uniqueAreas.contains(areaName)) {
+                                                return false; // ถ้ามีแล้วไม่เอา
+                                              }
+                                              uniqueAreas.add(areaName);
+                                              return true;
+                                            })
+                                            .toList();
+                                          
+                                          // พื้นที่ระบบก่อน
+                                          for (var loc in filteredLocations.where((loc) => loc['user_id'] != _current_user_id)) {
+                                            items.add(DropdownMenuItem<String>(
+                                              value: loc['area_name'],
+                                              child: Text(
+                                                loc['area_name'],
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.black87,
+                                                ),
+                                              ),
+                                            ));
+                                          }
+                                          
+                                          // พื้นที่ที่ผู้ใช้เพิ่มเอง (ท้ายสุด พร้อมไอคอนลบ)
+                                          for (var loc in filteredLocations.where((loc) => loc['user_id'] == _current_user_id)) {
+                                            items.add(DropdownMenuItem<String>(
+                                              value: loc['area_name'],
                                               child: Row(
+                                                mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  Icon(Icons.add_circle_outline, color: Color(0xFF4A90E2), size: 16),
-                                                  SizedBox(width: 8),
                                                   Text(
-                                                    'เพิ่มพื้นที่ใหม่',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color: Color(0xFF4A90E2),
-                                                      fontWeight: FontWeight.w600,
+                                                    loc['area_name'],
+                                                    style: const TextStyle(
+                                                      fontSize: 14,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  GestureDetector(
+                                                    onTap: () {
+                                                      Navigator.pop(context); // ปิด dropdown ก่อน
+                                                      _confirm_delete_storage_dialog(loc['area_name']);
+                                                    },
+                                                    child: Icon(
+                                                      Icons.delete_outline,
+                                                      size: 16,
+                                                      color: Colors.red[600],
                                                     ),
                                                   ),
                                                 ],
                                               ),
-                                          ),
-                                          // พื้นที่ที่มีอยู่ - แยกระหว่างพื้นที่ระบบและพื้นที่ที่ผู้ใช้เพิ่ม
-                                          ..._storage_locations
-                                            .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
-                                                           loc['user_id'] != _current_user_id) // พื้นที่ระบบก่อน
-                                            .map((loc) {
-                                          return DropdownMenuItem<String>(
-                                            value: loc['area_name'],
-                                            child: Text(
-                                              loc['area_name'],
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.black87,
-                                              ),
-                                            ),
-                                          );
-                                        }),
-                                          // พื้นที่ที่ผู้ใช้เพิ่มเอง (ท้ายสุด พร้อมไอคอนลบ)
-                                          ..._storage_locations
-                                            .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                                                           loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
-                                                           loc['user_id'] == _current_user_id) // พื้นที่ที่ผู้ใช้เพิ่มเอง
-                                            .map((loc) {
-                                          return DropdownMenuItem<String>(
-                                            value: loc['area_name'],
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  loc['area_name'],
-                                                  style: const TextStyle(
-                                                    fontSize: 14,
-                                                    color: Colors.black87,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                GestureDetector(
-                                                  onTap: () {
-                                                    Navigator.pop(context); // ปิด dropdown ก่อน
-                                                    _confirm_delete_storage_dialog(loc['area_name']);
-                                                  },
-                                                  child: Icon(
-                                                    Icons.delete_outline,
-                                                    size: 16,
-                                                    color: Colors.red[600],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        })],
+                                            ));
+                                          }
+                                          
+                                          return items;
+                                        }(),
                                         onChanged: (newValue) async {
-                                          if (newValue == '__ADD_NEW_AREA__') {
-                                            // เรียกฟังก์ชันเพิ่มพื้นที่ใหม่
-                                            await _show_add_storage_dialog();
-                                            // หลังจากเพิ่มพื้นที่ใหม่แล้ว ค่า _selected_storage จะถูกอัปเดตแล้วใน _add_new_storage_location
-                                            // ต้อง rebuild widget เพื่อแสดงพื้นที่ที่เลือกใหม่
-                                            setState(() {});
-                                          } else if (newValue != null) {
+                                          if (newValue != null) {
                                             try {
                                               final selectedLocation = _storage_locations.firstWhere(
                                                 (loc) => loc['area_name'] == newValue,
@@ -3606,9 +3627,11 @@ class _AddItemPageState extends State<AddItemPage> {
                                                   dropdownColor: Colors.white,
                                                   menuMaxHeight: 400,
                                                   itemHeight: 56,
-                                                  items: [
+                                                  items: () {
+                                                    List<DropdownMenuItem<String>> items = [];
+                                                    
                                                     // แสดงตัวเลือกเพิ่มพื้นที่ใหม่เสมอในสรุปการกระจาย
-                                                    const DropdownMenuItem<String>(
+                                                    items.add(const DropdownMenuItem<String>(
                                                       value: '__ADD_NEW_AREA__',
                                                       child: Row(
                                                         children: [
@@ -3624,58 +3647,70 @@ class _AddItemPageState extends State<AddItemPage> {
                                                           ),
                                                         ],
                                                       ),
-                                                    ),
-                                                    // พื้นที่ที่มีอยู่ - แยกระหว่างพื้นที่ระบบและพื้นที่ที่ผู้ใช้เพิ่ม
-                                                    ..._storage_locations
+                                                    ));
+                                                    
+                                                    // รวมพื้นที่ทั้งหมดและกรองซ้ำ
+                                                    final uniqueAreas = <String>{};
+                                                    final filteredLocations = _storage_locations
                                                       .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
-                                                                     loc['user_id'] != _current_user_id) // พื้นที่ระบบก่อน
-                                                      .map((loc) {
-                                                    return DropdownMenuItem<String>(
-                                                      value: loc['area_name'],
-                                                      child: Text(
-                                                        loc['area_name'],
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors.black87,
+                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง')
+                                                      .where((loc) {
+                                                        final areaName = loc['area_name'] as String;
+                                                        if (uniqueAreas.contains(areaName)) {
+                                                          return false; // ถ้ามีแล้วไม่เอา
+                                                        }
+                                                        uniqueAreas.add(areaName);
+                                                        return true;
+                                                      })
+                                                      .toList();
+                                                    
+                                                    // พื้นที่ระบบก่อน
+                                                    for (var loc in filteredLocations.where((loc) => loc['user_id'] != _current_user_id)) {
+                                                      items.add(DropdownMenuItem<String>(
+                                                        value: loc['area_name'],
+                                                        child: Text(
+                                                          loc['area_name'],
+                                                          style: const TextStyle(
+                                                            fontSize: 12,
+                                                            color: Colors.black87,
+                                                          ),
                                                         ),
-                                                      ),
-                                                    );
-                                                  }),
+                                                      ));
+                                                    }
+                                                    
                                                     // พื้นที่ที่ผู้ใช้เพิ่มเอง (ท้ายสุด พร้อมไอคอนลบ)
-                                                    ..._storage_locations
-                                                      .where((loc) => loc['area_name'] != 'เลือกพื้นที่จัดเก็บ' && 
-                                                                     loc['area_name'] != 'เพิ่มพื้นที่การเอง' &&
-                                                                     loc['user_id'] == _current_user_id) // พื้นที่ที่ผู้ใช้เพิ่มเอง
-                                                      .map((loc) {
-                                                    return DropdownMenuItem<String>(
-                                                      value: loc['area_name'],
-                                                      child: Row(
-                                                        mainAxisSize: MainAxisSize.min,
-                                                        children: [
-                                                          Text(
-                                                            loc['area_name'],
-                                                            style: const TextStyle(
-                                                              fontSize: 14,
-                                                              color: Colors.black87,
+                                                    for (var loc in filteredLocations.where((loc) => loc['user_id'] == _current_user_id)) {
+                                                      items.add(DropdownMenuItem<String>(
+                                                        value: loc['area_name'],
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            Text(
+                                                              loc['area_name'],
+                                                              style: const TextStyle(
+                                                                fontSize: 14,
+                                                                color: Colors.black87,
+                                                              ),
                                                             ),
-                                                          ),
-                                                          const SizedBox(width: 8),
-                                                          GestureDetector(
-                                                            onTap: () {
-                                                              Navigator.pop(context); // ปิด dropdown ก่อน
-                                                              _confirm_delete_storage_dialog(loc['area_name']);
-                                                            },
-                                                            child: Icon(
-                                                              Icons.delete_outline,
-                                                              size: 16,
-                                                              color: Colors.red[600],
+                                                            const SizedBox(width: 8),
+                                                            GestureDetector(
+                                                              onTap: () {
+                                                                Navigator.pop(context); // ปิด dropdown ก่อน
+                                                                _confirm_delete_storage_dialog(loc['area_name']);
+                                                              },
+                                                              child: Icon(
+                                                                Icons.delete_outline,
+                                                                size: 16,
+                                                                color: Colors.red[600],
+                                                              ),
                                                             ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    );
-                                                  })],
+                                                          ],
+                                                        ),
+                                                      ));
+                                                    }
+                                                    
+                                                    return items;
+                                                  }(),
                                                   onChanged: (newValue) async {
                                                     if (newValue == '__ADD_NEW_AREA__') {
                                                       // เรียกฟังก์ชันเพิ่มพื้นที่ใหม่

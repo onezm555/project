@@ -7,10 +7,12 @@ import 'add_item.dart';
 
 class ItemDetailPage extends StatefulWidget {
   final Map<String, dynamic> item_data;
+  final bool isReadOnlyMode; // เพิ่ม parameter สำหรับโหมดดูอย่างเดียว
 
   const ItemDetailPage({
     Key? key,
     required this.item_data,
+    this.isReadOnlyMode = false, // ค่าเริ่มต้นเป็น false
   }) : super(key: key);
 
   @override
@@ -1367,11 +1369,13 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         ),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            tooltip: 'ลบสิ่งของ',
-            onPressed: _delete_item, // Call the delete function
-          ),
+          // แสดงปุ่มลบเฉพาะเมื่อไม่ใช่โหมดดูอย่างเดียว
+          if (!widget.isReadOnlyMode)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              tooltip: 'ลบสิ่งของ',
+              onPressed: _delete_item, // Call the delete function
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -1528,74 +1532,77 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
 
               const SizedBox(height: 32),
 
-              // ไม่มีปุ่มบันทึกในหน้ารายละเอียด
-              // Add the new buttons here
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          final result = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => AddItemPage(
-                                is_existing_item: true,
-                                item_data: widget.item_data,
+              // แสดงปุ่มแก้ไขและจัดการเฉพาะเมื่อไม่ใช่โหมดดูอย่างเดียว
+              if (!widget.isReadOnlyMode) ...[
+                // ไม่มีปุ่มบันทึกในหน้ารายละเอียด
+                // Add the new buttons here
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            final result = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AddItemPage(
+                                  is_existing_item: true,
+                                  item_data: widget.item_data,
+                                ),
                               ),
+                            );
+                            if (result == true) {
+                              // ถ้าแก้ไขแล้ว กลับหรือ refresh
+                              Navigator.pop(context, true);
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue, // Blue button
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
                             ),
-                          );
-                          if (result == true) {
-                            // ถ้าแก้ไขแล้ว กลับหรือ refresh
-                            Navigator.pop(context, true);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue, // Blue button
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(25),
+                            padding: const EdgeInsets.symmetric(vertical: 15),
                           ),
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                        ),
-                        child: const Text(
-                          'แก้ไขข้อมูล',
-                          style: TextStyle(
-                            fontSize: 18, // เพิ่มจาก 16 เป็น 18
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                          child: const Text(
+                            'แก้ไขข้อมูล',
+                            style: TextStyle(
+                              fontSize: 18, // เพิ่มจาก 16 เป็น 18
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    
-                    // ปุ่ม "ทิ้งสิ่งของ/สิ่งของหมด" สำหรับแสดงรายการและเปลี่ยนสถานะแต่ละไอเทม
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          _show_discard_options_dialog();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(25),
+                      
+                      // ปุ่ม "ทิ้งสิ่งของ/สิ่งของหมด" สำหรับแสดงรายการและเปลี่ยนสถานะแต่ละไอเทม
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            _show_discard_options_dialog();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 15),
                           ),
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                        ),
-                        child: const Text(
-                          'ทิ้งสิ่งของ/สิ่งของหมด',
-                          style: TextStyle(
-                            fontSize: 18, // เพิ่มจาก 16 เป็น 18
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                          child: const Text(
+                            'ทิ้งสิ่งของ/สิ่งของหมด',
+                            style: TextStyle(
+                              fontSize: 18, // เพิ่มจาก 16 เป็น 18
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ]
             ],
           ),
         ),

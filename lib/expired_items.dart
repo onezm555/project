@@ -650,6 +650,7 @@ class _ExpiredItemsPageState extends State<ExpiredItemsPage> {
                 'area_id': item['area_id'],
                 'detail_id': item['detail_id'], // รหัสเฉพาะของชิ้นนี้
               },
+              isReadOnlyMode: true, // เพิ่ม parameter เพื่อบอกว่าเป็นโหมดดูอย่างเดียว
             ),
           ),
         );

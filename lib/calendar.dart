@@ -229,7 +229,7 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
           Text(
             'ปี ${_selected_year + 543}',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), // เพิ่มจาก 18 เป็น 24
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), 
           ),
           IconButton(
             icon: const Icon(Icons.arrow_right),
@@ -620,9 +620,9 @@ class _CalendarPageState extends State<CalendarPage> {
                       onTap: () async {
                         Navigator.pop(context);
                         
-                        // เตรียมข้อมูลให้ครบถ้วนสำหรับ ItemDetailPage
+                    
                         Map<String, dynamic> itemDetailData = {
-                          // ข้อมูลพื้นฐาน
+                        
                           'item_id': item_data['item_id'],
                           'id': item_data['item_id'], // เพิ่ม id สำรอง
                           'name': item_data['item_name'] ?? item_data['name'] ?? '',
@@ -631,33 +631,33 @@ class _CalendarPageState extends State<CalendarPage> {
                           'item_number': item_data['item_number'] ?? item_data['quantity'] ?? 1,
                           'remaining_quantity': item_data['remaining_quantity'] ?? item_data['item_number'] ?? item_data['quantity'] ?? 1,
                           
-                          // ข้อมูลหมวดหมู่และที่เก็บ
+                         
                           'category': item_data['category'] ?? item_data['type_name'] ?? 'ไม่ระบุ',
                           'type_name': item_data['type_name'] ?? item_data['category'] ?? 'ไม่ระบุ',
                           'storage_location': item_data['storage_location'] ?? item_data['area_name'] ?? 'ไม่ระบุ',
                           'area_name': item_data['area_name'] ?? item_data['storage_location'] ?? 'ไม่ระบุ',
                           
-                          // ข้อมูลวันที่
+                         
                           'item_date': item_data['item_date'],
                           'date_type': item_data['date_type'] ?? 'EXP',
                           'unit': item_data['date_type'] ?? 'EXP',
                           
-                          // ข้อมูลการแจ้งเตือน
+                          
                           'item_notification': item_data['item_notification'] ?? item_data['notification_days'] ?? 3,
                           'notification_days': item_data['notification_days'] ?? item_data['item_notification'] ?? 3,
                           
-                          // ข้อมูลบาร์โค้ด
+                         
                           'barcode': item_data['item_barcode'] ?? item_data['barcode'] ?? '',
                           'item_barcode': item_data['item_barcode'] ?? item_data['barcode'] ?? '',
                           
-                          // ข้อมูลผู้ใช้และสถานะ
+                         
                           'user_id': item_data['user_id'],
                           'item_status': item_data['item_status'] ?? 'active',
                           
-                          // ข้อมูลรูปภาพ
+                          
                           'item_img': item_data['item_img_full_url'] ?? item_data['item_img'] ?? null,
                           
-                          // ข้อมูลเพิ่มเติม
+                          
                           'storage_locations': item_data['storage_locations'] ?? [],
                           'item_expire_details': item_data['item_expire_details'] ?? [],
                           'used_quantity': item_data['used_quantity'] ?? 0,
@@ -727,7 +727,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                   Text(
                                     display_item_name,
                                     style: const TextStyle(
-                                      fontSize: 20, // เพิ่มจาก 16 เป็น 20
+                                      fontSize: 20, 
                                       fontWeight: FontWeight.bold,
                                       color: Color(0xFF4A90E2),
                                     ),
@@ -735,9 +735,9 @@ class _CalendarPageState extends State<CalendarPage> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   Text(
-                                    'จำนวน: ${item_data['item_number'] ?? 'N/A'}',
+                                    'จำนวน: ${_getQuantityForDate(item_data, DateTime(_display_mode == 1 ? DateTime.parse(item_data['item_date']).year : _selected_year, month, day))}',
                                     style: TextStyle(
-                                      fontSize: 16, // เพิ่มจาก 12 เป็น 16
+                                      fontSize: 16, 
                                       color: Colors.grey[700],
                                     ),
                                   ),
@@ -748,27 +748,35 @@ class _CalendarPageState extends State<CalendarPage> {
                                       color: Colors.grey[700],
                                     ),
                                   ),
-                                  // แสดงพื้นที่จัดเก็บทั้งหมด (ถ้ามีหลายพื้นที่)
-                                  if ((item_data['storage_locations'] != null && (item_data['storage_locations'] as List).isNotEmpty))
-                                    Text(
-                                      'จัดเก็บ: ${(item_data['storage_locations'] as List)
-                                          .map((loc) => (loc is Map) ? (loc['area_name'] ?? '') : '')
-                                          .where((name) => name.toString().isNotEmpty)
-                                          .toSet() // ใช้ Set เพื่อลบชื่อซ้ำ
-                                          .join(', ')}',
-                                      style: TextStyle(
-                                        fontSize: 16, // เพิ่มจาก 12 เป็น 16
-                                        color: Colors.grey[700],
-                                      ),
-                                    )
-                                  else
-                                    Text(
-                                      'จัดเก็บ: ${item_data['storage_location'] ?? item_data['area_name'] ?? 'N/A'}',
-                                      style: TextStyle(
-                                        fontSize: 16, // เพิ่มจาก 12 เป็น 16
-                                        color: Colors.grey[700],
-                                      ),
-                                    ),
+                                  // แสดงพื้นที่จัดเก็บเฉพาะวันที่ที่หมดอายุ
+                                  Builder(
+                                    builder: (context) {
+                                      final target_date = DateTime(
+                                        _display_mode == 1 ? DateTime.parse(item_data['item_date']).year : _selected_year,
+                                        month,
+                                        day
+                                      );
+                                      final storage_locations = _getStorageLocationsForDate(item_data, target_date);
+                                      
+                                      if (storage_locations.isNotEmpty) {
+                                        return Text(
+                                          'จัดเก็บ: ${storage_locations.join(', ')}',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.grey[700],
+                                          ),
+                                        );
+                                      } else {
+                                        return Text(
+                                          'จัดเก็บ: ไม่ระบุ',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.grey[700],
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
                                 ],
                               ),
                             ),
@@ -795,6 +803,68 @@ class _CalendarPageState extends State<CalendarPage> {
         ],
       ),
     );
+  }
+
+  // ฟังก์ชันคำนวณจำนวนที่หมดอายุในวันที่กำหนด
+  int _getQuantityForDate(Map<String, dynamic> item_data, DateTime target_date) {
+    final item_expire_details = item_data['item_expire_details'] as List<dynamic>? ?? [];
+    int total_quantity = 0;
+    
+    for (var detail in item_expire_details) {
+      if (detail is Map<String, dynamic>) {
+        try {
+          final expire_date = DateTime.parse(detail['expire_date']);
+          // เปรียบเทียบเฉพาะวัน เดือน ปี (ไม่รวมเวลา)
+          if (expire_date.year == target_date.year && 
+              expire_date.month == target_date.month && 
+              expire_date.day == target_date.day) {
+            total_quantity += (detail['quantity'] as int? ?? 0);
+          }
+        } catch (e) {
+          // ถ้า parse วันที่ไม่ได้ ให้ข้าม
+          continue;
+        }
+      }
+    }
+    
+    // ถ้าไม่มีข้อมูลใน item_expire_details หรือหาไม่เจอ ให้ fallback ไปใช้ item_number
+    return total_quantity > 0 ? total_quantity : (item_data['item_number'] as int? ?? 0);
+  }
+
+  // ฟังก์ชันดึงพื้นที่จัดเก็บเฉพาะวันที่ที่หมดอายุ
+  Set<String> _getStorageLocationsForDate(Map<String, dynamic> item_data, DateTime target_date) {
+    final item_expire_details = item_data['item_expire_details'] as List<dynamic>? ?? [];
+    Set<String> storage_locations = {};
+    
+    for (var detail in item_expire_details) {
+      if (detail is Map<String, dynamic>) {
+        try {
+          final expire_date = DateTime.parse(detail['expire_date']);
+          // เปรียบเทียบเฉพาะวัน เดือน ปี (ไม่รวมเวลา)
+          if (expire_date.year == target_date.year && 
+              expire_date.month == target_date.month && 
+              expire_date.day == target_date.day) {
+            final area_name = detail['area_name'] as String?;
+            if (area_name != null && area_name.isNotEmpty) {
+              storage_locations.add(area_name);
+            }
+          }
+        } catch (e) {
+          // ถ้า parse วันที่ไม่ได้ ให้ข้าม
+          continue;
+        }
+      }
+    }
+    
+    // ถ้าไม่มีข้อมูลใน item_expire_details หรือหาไม่เจอ ให้ fallback
+    if (storage_locations.isEmpty) {
+      final fallback_location = item_data['storage_location'] ?? item_data['area_name'] ?? '';
+      if (fallback_location.toString().isNotEmpty) {
+        storage_locations.add(fallback_location.toString());
+      }
+    }
+    
+    return storage_locations;
   }
 
   String _format_thai_date(String date) {

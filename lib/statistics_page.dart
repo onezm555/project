@@ -15,21 +15,25 @@ class StatisticsPage extends StatefulWidget {
 class _StatisticsPageState extends State<StatisticsPage> {
   bool _isLoading = true;
   String _errorMessage = '';
-  String _selectedMonth = 'all'; // เริ่มต้นด้วย 'all' เพื่อแสดงสถิติทั้งหมด
+  String _selectedMonth = 'all';
   
   // สถิติข้อมูล
   int _totalItems = 0;
   int _expiredItems = 0;
   int _disposedItems = 0;
+
+  
   double _expiredChangePercent = 0.0;
   
   List<dynamic> _categoryStats = [];
-  List<dynamic> _productStats = []; // เพิ่มสำหรับสิ่งของแยกตามประเภทเฉพาะ
+  List<dynamic> _productStats = [];
+  List<String> _availableMonths = [];
 
   @override
   void initState() {
     super.initState();
-    _selectedMonth = 'all'; // เริ่มต้นด้วยสถิติทั้งหมด
+    _selectedMonth = 'all';
+    print('StatisticsPage initState - starting with month: $_selectedMonth');
     _loadStatistics();
   }
 
@@ -38,11 +42,46 @@ class _StatisticsPageState extends State<StatisticsPage> {
     return '${now.year}-${now.month.toString().padLeft(2, '0')}';
   }
 
-  bool _isCurrentMonth() {
-    return _selectedMonth == _getCurrentMonth();
+  void _addCurrentMonthForTesting() {
+    String currentMonth = _getCurrentMonth();
+    if (!_availableMonths.contains(currentMonth)) {
+      setState(() {
+        _availableMonths.add(currentMonth);
+        _availableMonths.sort((a, b) => b.compareTo(a));
+      });
+      print('Added current month for testing: $currentMonth');
+      print('Available months after addition: $_availableMonths');
+    }
   }
 
-  // Helper methods สำหรับ parsing ข้อมูล
+  bool _canMovePrevious() {
+    if (_selectedMonth == 'all') {
+      return _availableMonths.isNotEmpty;
+    }
+    if (_availableMonths.isEmpty) return false;
+    
+    List<String> sortedMonths = List.from(_availableMonths);
+    sortedMonths.sort((a, b) => b.compareTo(a));
+    int currentIndex = sortedMonths.indexOf(_selectedMonth);
+    bool canMove = currentIndex >= 0 && currentIndex < sortedMonths.length - 1;
+    
+    print('_canMovePrevious - selectedMonth: $_selectedMonth, currentIndex: $currentIndex, canMove: $canMove, sortedMonths: $sortedMonths');
+    return canMove;
+  }
+
+  bool _canMoveNext() {
+    if (_selectedMonth == 'all') return false;
+    if (_availableMonths.isEmpty) return false;
+    
+    List<String> sortedMonths = List.from(_availableMonths);
+    sortedMonths.sort((a, b) => b.compareTo(a));
+    int currentIndex = sortedMonths.indexOf(_selectedMonth);
+    bool canMove = currentIndex > 0 || currentIndex == 0;
+    
+    print('_canMoveNext - selectedMonth: $_selectedMonth, currentIndex: $currentIndex, canMove: $canMove, sortedMonths: $sortedMonths');
+    return canMove;
+  }
+
   int _parseToInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
@@ -68,7 +107,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       
-      // ลองดึง user_id เป็นทั้ง String และ int แบบ safe
       String? userIdString;
       int? userIdInt;
       String? userId;
@@ -100,29 +138,19 @@ class _StatisticsPageState extends State<StatisticsPage> {
         });
         return;
       }
-      print('User ID String from SharedPreferences: $userIdString');
-      print('User ID Int from SharedPreferences: $userIdInt');
-      print('Final User ID: $userId');
-      print('Selected month: $_selectedMonth');
 
       final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
-      // ตรวจสอบให้แน่ใจว่า baseUrl มี / ท้าย
       final String apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
-      print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
-      print('Final API Base URL: $apiBaseUrl'); // Debug เพิ่ม
       String apiUrl;
       
       if (_selectedMonth == 'all') {
-        // สำหรับสถิติทั้งหมด ไม่ส่งพารามิเตอร์ month
         apiUrl = '${apiBaseUrl}get_statistics.php?user_id=$userId';
       } else {
-        // สำหรับสถิติรายเดือน
         apiUrl = '${apiBaseUrl}get_statistics.php?user_id=$userId&month=$_selectedMonth';
       }
       
       print('API URL: $apiUrl');
-      print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
-      print('Making HTTP GET request...');
+      
       final response = await http.get(
         Uri.parse(apiUrl),
         headers: {
@@ -137,7 +165,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
       if (response.statusCode == 200) {
         try {
           final data = json.decode(response.body);
-          print('Decoded data: $data');
           
           if (data['success'] == true) {
             setState(() {
@@ -147,17 +174,19 @@ class _StatisticsPageState extends State<StatisticsPage> {
               _expiredChangePercent = _parseToDouble(data['data']['expired_change_percent']);
               _categoryStats = data['data']['category_breakdown'] ?? [];
               _productStats = data['data']['product_breakdown'] ?? [];
+              _availableMonths = (data['data']['available_months'] as List?)?.cast<String>() ?? [];
               _isLoading = false;
             });
+            print('Statistics loaded successfully');
+            print('Total items: $_totalItems');
+            print('Available months: $_availableMonths');
+            print('Current selected month: $_selectedMonth');
           } else {
             final errorMessage = data['message']?.toString() ?? 'เกิดข้อผิดพลาดในการโหลดข้อมูล';
             setState(() {
               _isLoading = false;
               _errorMessage = 'Server Error: $errorMessage';
             });
-            print('API returned success: false');
-            print('Error message: ${data['message']}');
-            print('Full response data: $data');
           }
         } catch (jsonError) {
           print('JSON parsing error: $jsonError');
@@ -167,8 +196,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
           });
         }
       } else {
-        print('HTTP Error: ${response.statusCode}');
-        print('Response body: ${response.body}');
         setState(() {
           _isLoading = false;
           _errorMessage = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ (HTTP ${response.statusCode})';
@@ -176,7 +203,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
       }
     } catch (e) {
       print('Exception occurred: $e');
-      print('Exception type: ${e.runtimeType}');
       setState(() {
         _isLoading = false;
         _errorMessage = 'เกิดข้อผิดพลาด: $e';
@@ -192,8 +218,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
       final String apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
       final String testUrl = '${apiBaseUrl}get_statistics.php?user_id=1&month=$_selectedMonth';
       
-      print('Test URL with User ID 1: $testUrl');
-      
       final response = await http.get(
         Uri.parse(testUrl),
         headers: {
@@ -201,9 +225,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
           'Accept': 'application/json',
         },
       ).timeout(const Duration(seconds: 30));
-      
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -214,7 +235,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
         );
       }
     } catch (e) {
-      print('Test with User ID 1 error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -229,11 +249,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
 
   Future<void> _testConnection() async {
     try {
-      print('=== Testing Connection ===');
-      
       SharedPreferences prefs = await SharedPreferences.getInstance();
       
-      // ลองดึง user_id เป็นทั้ง String และ int
       String? userIdString = prefs.getString('user_id');
       int? userIdInt = prefs.getInt('user_id');
       String? userId;
@@ -244,26 +261,14 @@ class _StatisticsPageState extends State<StatisticsPage> {
         userId = userIdInt.toString();
       }
       
-      print('User ID String from SharedPreferences: $userIdString');
-      print('User ID Int from SharedPreferences: $userIdInt');
-      print('Final User ID: $userId');
-      print('Selected month: $_selectedMonth');
-      print('Base URL from .env: ${dotenv.env['API_BASE_URL']}');
-      
       final String baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost/project/';
       final String apiBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
       final String testUrl = '${apiBaseUrl}get_statistics.php?user_id=${userId ?? "1"}&month=$_selectedMonth';
-      
-      print('Test URL: $testUrl');
       
       final response = await http.get(
         Uri.parse(testUrl),
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
-      
-      print('Response status: ${response.statusCode}');
-      print('Response headers: ${response.headers}');
-      print('Response body: ${response.body}');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -274,7 +279,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
         );
       }
     } catch (e) {
-      print('Test connection error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -288,35 +292,69 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   void _changeMonth(int direction) {
+    print('_changeMonth called with direction: $direction (${direction == -1 ? "Previous/Older" : "Next/Newer"})');
+    print('Current _selectedMonth: $_selectedMonth');
+    print('Available months: $_availableMonths');
+    
     if (_selectedMonth == 'all') {
-      // จาก 'all' ไปเดือนปัจจุบัน (ทางซ้าย)
-      if (direction == -1) {
+      if (direction == -1 && _availableMonths.isNotEmpty) {
+        List<String> sortedMonths = List.from(_availableMonths);
+        sortedMonths.sort((a, b) => b.compareTo(a));
+        print('Moving from "all" to latest month: ${sortedMonths.first}');
         setState(() {
-          _selectedMonth = _getCurrentMonth();
+          _selectedMonth = sortedMonths.first;
         });
         _loadStatistics();
       }
-      // ไม่สามารถไปทางขวาจาก 'all' ได้
       return;
     }
     
-    DateTime currentDate = DateTime.parse('$_selectedMonth-01');
-    DateTime newDate = DateTime(currentDate.year, currentDate.month + direction, 1);
-    String newMonth = '${newDate.year}-${newDate.month.toString().padLeft(2, '0')}';
-    
-    // ตรวจสอบว่าเดือนใหม่ไม่เกินเดือนปัจจุบัน
-    DateTime now = DateTime.now();
-    String currentMonth = '${now.year}-${now.month.toString().padLeft(2, '0')}';
-    
-    if (newMonth.compareTo(currentMonth) > 0) {
-      // หากเดือนใหม่มากกว่าเดือนปัจจุบัน ไม่ให้เปลี่ยน
+    if (_availableMonths.isEmpty) {
+      print('No available months, returning early');
       return;
     }
     
-    setState(() {
-      _selectedMonth = newMonth;
-    });
-    _loadStatistics();
+    List<String> sortedMonths = List.from(_availableMonths);
+    sortedMonths.sort((a, b) => b.compareTo(a));
+    
+    int currentIndex = sortedMonths.indexOf(_selectedMonth);
+    print('Current index: $currentIndex in sorted months: $sortedMonths');
+    
+    if (currentIndex == -1) {
+      print('Current month not found in available months');
+      setState(() {
+        _selectedMonth = 'all';
+      });
+      _loadStatistics();
+      return;
+    }
+    
+    int newIndex;
+    if (direction == -1) {
+      newIndex = currentIndex + 1;
+    } else {
+      newIndex = currentIndex - 1;
+    }
+    
+    print('New index would be: $newIndex (range: 0 to ${sortedMonths.length - 1})');
+    
+    if (newIndex >= 0 && newIndex < sortedMonths.length) {
+      String newMonth = sortedMonths[newIndex];
+      print('Moving to month: $newMonth (${direction == -1 ? "older" : "newer"} than $_selectedMonth)');
+      setState(() {
+        _selectedMonth = newMonth;
+      });
+      _loadStatistics();
+    } else {
+      print('New index out of bounds - newIndex: $newIndex, length: ${sortedMonths.length}');
+      if (direction == 1 && newIndex < 0) {
+        print('Going back to "all" statistics');
+        setState(() {
+          _selectedMonth = 'all';
+        });
+        _loadStatistics();
+      }
+    }
   }
 
   String _getMonthName(String monthStr) {
@@ -342,10 +380,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
     
     List<PieChartSectionData> sections = [];
     
-    // เพิ่มส่วนสำหรับ disposed items (ใช้แล้ว)
     if (_disposedItems > 0) {
       sections.add(PieChartSectionData(
-        color: const Color(0xFF8B5CF6), // สีม่วง
+        color: const Color(0xFF8B5CF6),
         value: _disposedItems.toDouble(),
         title: '${((_disposedItems / displayTotal) * 100).toStringAsFixed(1)}%',
         radius: 60,
@@ -357,10 +394,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
       ));
     }
     
-    // เพิ่มส่วนสำหรับ expired items (หมดอายุ)
     if (_expiredItems > 0) {
       sections.add(PieChartSectionData(
-        color: const Color(0xFFEF4444), // สีแดง
+        color: const Color(0xFFEF4444),
         value: _expiredItems.toDouble(),
         title: '${((_expiredItems / displayTotal) * 100).toStringAsFixed(1)}%',
         radius: 60,
@@ -418,14 +454,15 @@ class _StatisticsPageState extends State<StatisticsPage> {
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           ElevatedButton(
                             onPressed: _loadStatistics,
                             child: const Text('ลองใหม่'),
                           ),
-                          const SizedBox(width: 8),
                           ElevatedButton(
                             onPressed: _testConnection,
                             style: ElevatedButton.styleFrom(
@@ -433,13 +470,19 @@ class _StatisticsPageState extends State<StatisticsPage> {
                             ),
                             child: const Text('ทดสอบการเชื่อมต่อ'),
                           ),
-                          const SizedBox(width: 8),
                           ElevatedButton(
                             onPressed: _testWithDifferentUserId,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.orange,
                             ),
                             child: const Text('ทดสอบ User ID 1'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _addCurrentMonthForTesting,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                            ),
+                            child: const Text('เพิ่มเดือนปัจจุบัน'),
                           ),
                         ],
                       ),
@@ -458,7 +501,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'ยังไม่พบสถิติการเก็บสิ่งของคุณ',
+                            _selectedMonth == 'all' 
+                                ? 'ยังไม่พบสถิติการเก็บสิ่งของคุณ'
+                                : 'ไม่มีข้อมูลในเดือน${_getMonthName(_selectedMonth).replaceAll(' ', ' ')}',
                             style: TextStyle(
                               fontSize: 18,
                               color: Colors.grey[600],
@@ -468,13 +513,27 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'เริ่มต้นเพิ่มสิ่งของแรกของคุณเพื่อดูสถิติ',
+                            _selectedMonth == 'all'
+                                ? 'เริ่มต้นเพิ่มสิ่งของแรกของคุณเพื่อดูสถิติ'
+                                : 'ลองเลือกเดือนอื่นหรือกลับไปดูสถิติทั้งหมด',
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey[500],
                             ),
                             textAlign: TextAlign.center,
                           ),
+                          if (_selectedMonth != 'all') ...[
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedMonth = 'all';
+                                });
+                                _loadStatistics();
+                              },
+                              child: const Text('กลับไปสถิติทั้งหมด'),
+                            ),
+                          ],
                         ],
                       ),
                     )
@@ -483,50 +542,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Debug information (แสดงเฉพาะเมื่อมี error)
-                      if (_errorMessage.isNotEmpty) ...[
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.orange[50],
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.orange[200]!),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Debug Information:',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text('Selected Month: $_selectedMonth'),
-                              Text('Base URL: ${dotenv.env['API_BASE_URL'] ?? 'Not found in .env'}'),
-                              FutureBuilder<String?>(
-                                future: SharedPreferences.getInstance().then((prefs) {
-                                  String? userIdString = prefs.getString('user_id');
-                                  int? userIdInt = prefs.getInt('user_id');
-                                  if (userIdString != null && userIdString.isNotEmpty) {
-                                    return userIdString;
-                                  } else if (userIdInt != null) {
-                                    return userIdInt.toString();
-                                  }
-                                  return null;
-                                }),
-                                builder: (context, snapshot) {
-                                  return Text('User ID: ${snapshot.data ?? 'Loading...'}');
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      
                       // Month selector
                       Container(
                         width: double.infinity,
@@ -546,8 +561,15 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             IconButton(
-                              onPressed: _selectedMonth == 'all' ? () => _changeMonth(-1) : () => _changeMonth(-1),
-                              icon: const Icon(Icons.chevron_left),
+                              onPressed: _canMovePrevious() ? () {
+                                print('Previous button pressed - current month: $_selectedMonth');
+                                _changeMonth(-1);
+                              } : null,
+                              icon: Icon(
+                                Icons.chevron_left,
+                                color: _canMovePrevious() ? Colors.blue[600] : Colors.grey[400],
+                              ),
+                              tooltip: _canMovePrevious() ? 'เดือนก่อนหน้า (เก่ากว่า)' : 'ไม่มีเดือนก่อนหน้า',
                             ),
                             Expanded(
                               child: Text(
@@ -560,22 +582,26 @@ class _StatisticsPageState extends State<StatisticsPage> {
                               ),
                             ),
                             IconButton(
-                              onPressed: (_selectedMonth == 'all' || _isCurrentMonth()) ? null : () => _changeMonth(1),
+                              onPressed: _canMoveNext() ? () {
+                                print('Next button pressed - current month: $_selectedMonth');
+                                _changeMonth(1);
+                              } : null,
                               icon: Icon(
                                 Icons.chevron_right,
-                                color: (_selectedMonth == 'all' || _isCurrentMonth()) ? Colors.grey[400] : null,
+                                color: _canMoveNext() ? Colors.blue[600] : Colors.grey[400],
                               ),
+                              tooltip: _canMoveNext() ? (_availableMonths.isNotEmpty && _selectedMonth == _availableMonths.reduce((a, b) => a.compareTo(b) > 0 ? a : b) ? 'กลับไปสถิติทั้งหมด' : 'เดือนถัดไป (ใหม่กว่า)') : 'ไม่มีเดือนถัดไป',
                             ),
-                            // เพิ่มปุ่มกลับไปสถิติทั้งหมด
                             if (_selectedMonth != 'all')
                               IconButton(
                                 onPressed: () {
+                                  print('Home button pressed - going back to all statistics');
                                   setState(() {
                                     _selectedMonth = 'all';
                                   });
                                   _loadStatistics();
                                 },
-                                icon: const Icon(Icons.home),
+                                icon: const Icon(Icons.home, color: Colors.green),
                                 tooltip: 'กลับไปสถิติทั้งหมด',
                               ),
                           ],
@@ -598,7 +624,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           Expanded(
                             child: _buildStatCard(
                               'ใช้แล้ว',
-                              _disposedItems.toString(),  // เปลี่ยนจาก _expiredItems เป็น _disposedItems
+                              _disposedItems.toString(),
                               Colors.purple,
                             ),
                           ),
@@ -606,52 +632,16 @@ class _StatisticsPageState extends State<StatisticsPage> {
                           Expanded(
                             child: _buildStatCard(
                               'หมดอายุ',
-                              _expiredItems.toString(),   // เปลี่ยนจาก _disposedItems เป็น _expiredItems
+                              _expiredItems.toString(),
                               Colors.red,
                             ),
                           ),
                         ],
                       ),
                       
-                      // เพิ่มการแสดงเปรียบเทียบกับเดือนก่อน
-                      if (_expiredChangePercent != 0) ...[
-                        const SizedBox(height: 16),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: _expiredChangePercent >= 0 ? Colors.red[50] : Colors.green[50],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _expiredChangePercent >= 0 ? Colors.red[200]! : Colors.green[200]!,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                _expiredChangePercent >= 0 ? Icons.trending_up : Icons.trending_down,
-                                color: _expiredChangePercent >= 0 ? Colors.red : Colors.green,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'รายการหมดอายุเดือนนี้ ${_expiredChangePercent >= 0 ? "เพิ่มขึ้น" : "ลดลง"} ${_expiredChangePercent.abs().toStringAsFixed(1)}% เทียบกับเดือนที่แล้ว',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: _expiredChangePercent >= 0 ? Colors.red[700] : Colors.green[700],
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      
-                      const SizedBox(height: 24),
-                      
                       // Pie Chart
-                      if ((_disposedItems + _expiredItems) > 0)
+                      if ((_disposedItems + _expiredItems) > 0) ...[
+                        const SizedBox(height: 24),
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(20),
@@ -689,11 +679,11 @@ class _StatisticsPageState extends State<StatisticsPage> {
                             ],
                           ),
                         ),
-                      
-                      const SizedBox(height: 24),
+                      ],
                       
                       // Category breakdown
                       if (_categoryStats.isNotEmpty) ...[
+                        const SizedBox(height: 24),
                         const Text(
                           'สถิติตามหมวดหมู่',
                           style: TextStyle(
@@ -727,10 +717,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
                         ),
                       ],
                       
-                      const SizedBox(height: 24),
-                      
-                      // Product breakdown (สิ่งของแยกตามประเภทเฉพาะ)
+                      // Product breakdown
                       if (_productStats.isNotEmpty) ...[
+                        const SizedBox(height: 24),
                         const Text(
                           'สถิติตามประเภทสิ่งของ',
                           style: TextStyle(
@@ -885,7 +874,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.purple[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(category['disposed_count'])}',  // เปลี่ยนจาก expired_count เป็น disposed_count
+                      '${_parseToInt(category['disposed_count'])}',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.purple[700],
@@ -915,7 +904,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.red[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(category['expired_count'])}',  // เปลี่ยนจาก disposed_count เป็น expired_count
+                      '${_parseToInt(category['expired_count'])}',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.red[700],
@@ -991,7 +980,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.purple[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(product['disposed_count'])}',  // เปลี่ยนจาก expired_count เป็น disposed_count
+                      '${_parseToInt(product['disposed_count'])}',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.purple[700],
@@ -1021,7 +1010,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                       border: Border.all(color: Colors.red[200]!),
                     ),
                     child: Text(
-                      '${_parseToInt(product['expired_count'])}',  // เปลี่ยนจาก disposed_count เป็น expired_count
+                      '${_parseToInt(product['expired_count'])}',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.red[700],
